@@ -1,5 +1,5 @@
 def main():
-    print("Hello from sac-rgb!")
+    print("Hello from act-distill!")
 
 
 if __name__ == "__main__":
