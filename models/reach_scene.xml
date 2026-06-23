@@ -17,6 +17,7 @@
   </asset>
 
   <worldbody>
+    <camera name="overhead_cam" pos="0 0 0.65" xyaxes="1 0 0 0 1 0" fovy="65"/>
     <geom name="floor" type="plane" size="1 1 0.01" pos="0 0 -0.45"
           material="groundplane" contype="0" conaffinity="0"/>
 

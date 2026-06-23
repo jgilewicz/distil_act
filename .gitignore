@@ -1,0 +1,19 @@
+# dependencies
+.venv/
+
+# generated data & logs
+data/
+logs/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.ruff_cache/
+
+# build
+dist/
+*.egg-info/
+
+# env / secrets
+.env

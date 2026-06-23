@@ -1,0 +1,26 @@
+env:
+  scene_xml_path: "models/reach_scene.xml"
+  target_xy_range: [0, 0.2]
+  target_z_range: [0.1, 0.20]
+  reach_threshold: 0.01
+
+expert:
+  dt: 0.002
+  solver: "daqp"
+  max_iters: 10
+  ik_pos_threshold: 0.005
+
+renderer:
+  height: 480
+  width: 640
+
+collection:
+  n_episodes: 100
+  n_steps: 400
+  dataset_dir: "data/reach"
+  log_file: "logs/data_gathering.log"
+  record_camera: "overhead_cam"
+  render_cameras:
+    - "overhead_cam"
+    - "ego_cam"
+  hf_repo_id: "jgilewicz/distil_act_reach_env"

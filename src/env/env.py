@@ -1,39 +1,55 @@
 import mujoco
-import mujoco.viewer
 from robot_descriptions import low_cost_robot_arm_mj_description
 import numpy as np
 
-SCENE_XML_PATH = "models/reach_scene.xml"
 
-TARGET_XY_RANGE = (-0.16, 0.18)
-TARGET_Z_RANGE = (0.03, 0.20)
-
-
-def build_model() -> mujoco.MjModel:
-    scene_spec = mujoco.MjSpec.from_file(SCENE_XML_PATH)
+def build_model(scene_xml_path: str) -> mujoco.MjModel:
+    scene_spec = mujoco.MjSpec.from_file(scene_xml_path)
     robot_spec = mujoco.MjSpec.from_file(low_cost_robot_arm_mj_description.MJCF_PATH)
 
     attach_frame = scene_spec.worldbody.add_frame()
     attach_frame.attach_body(robot_spec.worldbody.first_body(), prefix="robot_")
 
+    gripper_body = next(
+        (b for b in scene_spec.bodies if b.name == "robot_gripper_static_finger"), None
+    )
+
+    if gripper_body is not None:
+        cam_frame = gripper_body.add_frame()
+        cam_frame.add_camera(
+            name="ego_cam", pos=[0, 0, 0.05], xyaxes=[1, 0, 0, 0, 0, 1], fovy=75
+        )
+
     return scene_spec.compile()
 
 
-def sample_target_position(rng: np.random.Generator) -> np.ndarray:
-    x = rng.uniform(*TARGET_XY_RANGE)
-    y = rng.uniform(*TARGET_XY_RANGE)
-    z = rng.uniform(*TARGET_Z_RANGE)
-
+def sample_target_position(
+    rng: np.random.Generator,
+    target_xy_range: tuple[float, float],
+    target_z_range: tuple[float, float],
+) -> np.ndarray:
+    x = rng.uniform(*target_xy_range)
+    y = rng.uniform(*target_xy_range)
+    z = rng.uniform(*target_z_range)
     return np.array([x, y, z])
 
 
 class ReachEnvironment:
     def __init__(
-        self, ee_body_name: str = "robot_gripper_moving_finger", seed: int = 0
+        self,
+        scene_xml_path: str = "models/reach_scene.xml",
+        target_xy_range: tuple[float, float] = (-0.16, 0.18),
+        target_z_range: tuple[float, float] = (0.03, 0.20),
+        reach_threshold: float = 1e-2,
+        ee_body_name: str = "robot_gripper_moving_finger",
+        seed: int = 0,
     ) -> None:
-        self.model = build_model()
+        self.model = build_model(scene_xml_path)
         self.data = mujoco.MjData(self.model)
         self.rng = np.random.default_rng(seed)
+        self.target_xy_range = target_xy_range
+        self.target_z_range = target_z_range
+        self.reach_threshold = reach_threshold
 
         self.ee_id = mujoco.mj_name2id(
             self.model, mujoco.mjtObj.mjOBJ_BODY, ee_body_name
@@ -47,51 +63,24 @@ class ReachEnvironment:
     def _get_obs(self) -> np.ndarray:
         ee_pos = self.data.xpos[self.ee_id].copy()
         target_pos = self.data.mocap_pos[self.target_mocap_id].copy()
-
         qpos = self.data.qpos.copy()
         qvel = self.data.qvel.copy()
-
         return np.concatenate([qpos, qvel, ee_pos, target_pos])
 
-    def _compute_reward(self) -> float:
-        ee_pos = self.data.xpos[self.ee_id]
-        target_pos = self.data.mocap_pos[self.target_mocap_id]
-
-        distance = np.linalg.norm(ee_pos - target_pos)
-
-        return -distance.astype(float)
-
-    def step(self, action: np.ndarray) -> tuple:
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, bool]:
         self.data.ctrl[:] = action
         mujoco.mj_step(self.model, self.data)
-
         obs = self._get_obs()
-        reward = self._compute_reward()
-
-        terminated = False  # no usage in reach for now
-        info = {}
-
-        return obs, reward, terminated, info
+        dist = np.linalg.norm(
+            self.data.xpos[self.ee_id] - self.data.mocap_pos[self.target_mocap_id]
+        )
+        return obs, dist < self.reach_threshold
 
     def reset(self) -> np.ndarray:
         mujoco.mj_resetData(self.model, self.data)
-
-        target_pos = sample_target_position(self.rng)
+        target_pos = sample_target_position(
+            self.rng, self.target_xy_range, self.target_z_range
+        )
         self.data.mocap_pos[self.target_mocap_id] = target_pos
-
         mujoco.mj_forward(self.model, self.data)
-
         return self._get_obs()
-
-
-if __name__ == "__main__":
-    env = ReachEnvironment()
-    obs = env.reset()
-
-    with mujoco.viewer.launch_passive(env.model, env.data) as viewer:
-        while viewer.is_running():
-            for i in range(10):
-                action = env.rng.uniform(-0.3, 0.3, size=env.model.nu)
-                obs, reward, terminated, info = env.step(action)
-                print(f"Step {i}: reward={reward:.4f}")
-                viewer.sync()
