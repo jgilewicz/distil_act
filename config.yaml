@@ -23,4 +23,4 @@ collection:
   render_cameras:
     - "overhead_cam"
     - "ego_cam"
-  hf_repo_id: "jgilewicz/distil_act_reach_env"
+  hf_repo_id: "hf_repo"

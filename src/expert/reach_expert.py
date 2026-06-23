@@ -71,27 +71,3 @@ class ReachExpert(Expert):
         action = np.zeros(self.env.model.nu)
         action[self.actuator_ids] = self.configuration.q[self.dof_ids]
         return action
-
-
-if __name__ == "__main__":
-    from utils.logger import Logger
-    from utils.config import load_config
-
-    cfg = load_config("config.yaml")
-    log = Logger("logs/expert_test.log")
-
-    env = ReachEnvironment(**cfg["env"])
-    obs = env.reset()
-    expert = ReachExpert(env, **cfg["expert"])
-
-    log.info(f"target: {obs[-3:]}")
-
-    for step in range(300):
-        action = expert.compute_action(obs)
-        obs, terminated = env.step(action)
-        if terminated:
-            log.info(f"reached at step {step + 1}")
-            break
-        if (step + 1) % 50 == 0:
-            dist = np.linalg.norm(env.data.xpos[env.ee_id] - obs[-3:])
-            log.info(f"step {step + 1:3d} | dist {dist:.4f} m")
