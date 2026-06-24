@@ -54,8 +54,12 @@ def main() -> None:
     col = cfg["collection"]
 
     log = Logger(col["log_file"])
-    log.info(f"Starting data collection — {col['n_episodes']} episodes → {col['dataset_dir']}")
-    log.info(f"viewer: {'on' if SHOW_VIEWER else 'off'} | steps/episode: {col['n_steps']} | camera: {col['record_camera']}")
+    log.info(
+        f"Starting data collection — {col['n_episodes']} episodes → {col['dataset_dir']}"
+    )
+    log.info(
+        f"viewer: {'on' if SHOW_VIEWER else 'off'} | steps/episode: {col['n_steps']} | camera: {col['record_camera']}"
+    )
 
     env = ReachEnvironment(**cfg["env"])
     expert = ReachExpert(env, **cfg["expert"])
@@ -75,8 +79,14 @@ def main() -> None:
     ) as renderer:
         for i in range(col["n_episodes"]):
             dist = collect_episode(
-                env, expert, renderer, dataset,
-                i, col["n_steps"], col["record_camera"], log,
+                env,
+                expert,
+                renderer,
+                dataset,
+                i,
+                col["n_steps"],
+                col["record_camera"],
+                log,
             )
             distances.append(dist)
 

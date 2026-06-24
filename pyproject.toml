@@ -22,3 +22,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/env", "src/expert", "src/renderer", "src/dataset", "src/algorithms", "src/utils"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
