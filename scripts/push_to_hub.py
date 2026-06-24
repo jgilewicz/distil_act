@@ -17,10 +17,11 @@ def main() -> None:
     api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True)
 
     log.info(f"Pushing {dataset_dir} → {repo_id}")
-    api.upload_folder(
+    api.upload_large_folder(
         folder_path=dataset_dir,
         repo_id=repo_id,
         repo_type="dataset",
+        num_workers=8,
     )
     log.info("Upload complete")
 
