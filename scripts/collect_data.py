@@ -21,7 +21,6 @@ def collect_episode(
     dataset: DatasetManager,
     episode_idx: int,
     n_steps: int,
-    record_camera: str,
     log: Logger,
 ) -> float:
     obs = env.reset()
@@ -33,8 +32,9 @@ def collect_episode(
         for _ in range(n_steps):
             action = expert.compute_action(obs)
             obs, terminated, frames = renderer.render_step(action)
+            stacked = np.stack([frames[cam] for cam in renderer.camera_names])
             recorder.append_step(
-                frame=frames[record_camera],
+                frames=stacked,
                 joint_pos=env.data.qpos.copy().astype("float32"),
                 timestamp=env.data.time,
             )
@@ -57,15 +57,16 @@ def main() -> None:
     log.info(
         f"Starting data collection — {col['n_episodes']} episodes → {col['dataset_dir']}"
     )
+    n_cameras = len(col["render_cameras"])
     log.info(
-        f"viewer: {'on' if SHOW_VIEWER else 'off'} | steps/episode: {col['n_steps']} | camera: {col['record_camera']}"
+        f"viewer: {'on' if SHOW_VIEWER else 'off'} | steps/episode: {col['n_steps']} | cameras: {col['render_cameras']}"
     )
 
     env = ReachEnvironment(**cfg["env"])
     expert = ReachExpert(env, **cfg["expert"])
     dataset = DatasetManager(
         root_dir=col["dataset_dir"],
-        img_shape=(cfg["renderer"]["height"], cfg["renderer"]["width"], 3),
+        img_shape=(n_cameras, cfg["renderer"]["height"], cfg["renderer"]["width"], 3),
         joint_dim=env.model.nq,
     )
 
@@ -85,7 +86,6 @@ def main() -> None:
                 dataset,
                 i,
                 col["n_steps"],
-                col["record_camera"],
                 log,
             )
             distances.append(dist)
@@ -94,8 +94,8 @@ def main() -> None:
         {
             "n_episodes": col["n_episodes"],
             "n_steps": col["n_steps"],
-            "record_camera": col["record_camera"],
-            "img_shape": [cfg["renderer"]["height"], cfg["renderer"]["width"], 3],
+            "cameras": col["render_cameras"],
+            "img_shape": [n_cameras, cfg["renderer"]["height"], cfg["renderer"]["width"], 3],
             "joint_dim": env.model.nq,
             "mean_final_dist_m": float(np.mean(distances)),
         }

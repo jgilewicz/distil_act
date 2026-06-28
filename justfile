@@ -13,9 +13,9 @@ collect:
 collect-headless:
     SHOW_VIEWER=false uv run python3 scripts/collect_data.py
 
-# run IK convergence smoke test
-test-expert:
-    uv run python3 -m expert.reach_expert
+# run test suite
+test:
+    MUJOCO_GL=disabled uv run pytest tests/ -v
 
 # check code for lint errors
 lint:
@@ -29,6 +29,10 @@ fix:
 # remove generated logs, dataset, and pycache
 clean:
     rm -rf logs/ data/ src/**/__pycache__ scripts/__pycache__
+
+# train the ACT policy
+train:
+    uv run python3 scripts/train_act.py
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
 push-to-hub:

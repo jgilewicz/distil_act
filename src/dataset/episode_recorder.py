@@ -32,7 +32,7 @@ class EpisodeRecorder:
         )
 
     def append_step(
-        self, frame: np.ndarray, joint_pos: np.ndarray, timestamp: float
+        self, frames: np.ndarray, joint_pos: np.ndarray, timestamp: float
     ) -> None:
         current_len = self.frames.shape[0]
         new_len = current_len + 1
@@ -41,7 +41,7 @@ class EpisodeRecorder:
         self.joints.resize(new_len, axis=0)
         self.timestamps.resize(new_len, axis=0)
 
-        self.frames[current_len] = frame
+        self.frames[current_len] = frames
         self.joints[current_len] = joint_pos
         self.timestamps[current_len] = timestamp
 

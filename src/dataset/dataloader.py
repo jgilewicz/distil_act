@@ -12,7 +12,7 @@ def _ensure_data(dataset_dir: str, repo_id: str) -> None:
         snapshot_download(repo_id=repo_id, repo_type="dataset", local_dir=dataset_dir)
 
 
-class ReachDataset(Dataset):
+class EpisodeDataset(Dataset):
     def __init__(self, cfg: dict, split: str = "train") -> None:
         dataset_dir = cfg["collection"]["dataset_dir"]
         repo_id = cfg["collection"]["hf_repo_id"]
@@ -43,19 +43,19 @@ class ReachDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         path, t = self._index[idx]
         with h5py.File(path, "r") as f:
-            image = f["frames"][t]
+            images = f["frames"][t]
             qpos = f["joints"][t]
             actions = f["joints"][t : t + self._chunk_size]
 
         return {
-            "image": torch.from_numpy(image).permute(2, 0, 1).float() / 255.0,
+            "images": torch.from_numpy(images).permute(0, 3, 1, 2).float() / 255.0,
             "qpos": torch.from_numpy(qpos.copy()),
             "actions": torch.from_numpy(actions.copy()),
         }
 
 
 def make_dataloader(cfg: dict, split: str = "train") -> DataLoader:
-    ds = ReachDataset(cfg, split=split)
+    ds = EpisodeDataset(cfg, split=split)
     return DataLoader(
         ds,
         batch_size=cfg["training"]["batch_size"],

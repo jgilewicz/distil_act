@@ -15,11 +15,10 @@ renderer:
   width: 640
 
 collection:
-  n_episodes: 100
+  n_episodes: 50
   n_steps: 400
   dataset_dir: "data/reach"
   log_file: "logs/data_gathering.log"
-  record_camera: "overhead_cam"
   render_cameras:
     - "overhead_cam"
     - "ego_cam"
