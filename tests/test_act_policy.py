@@ -9,6 +9,8 @@ JOINT_DIM = 6
 EMBED_DIM = 256
 LATENT_DIM = 128
 CHUNK = 10
+NHEAD = 8
+NUM_LAYERS = 4
 
 
 @pytest.fixture(scope="module")
@@ -19,6 +21,9 @@ def act():
         latent_dim=LATENT_DIM,
         joint_dim=JOINT_DIM,
         action_query_len=CHUNK,
+        nhead=NHEAD,
+        num_layers=NUM_LAYERS,
+        num_cameras=K,
     )
 
 
@@ -56,7 +61,12 @@ def test_inference_returns_tensor_not_tuple(act, batch):
 
 def test_encoder_cvae_shapes():
     cvae = EncoderCVAE(
-        embed_dim=EMBED_DIM, latent_dim=LATENT_DIM, joint_dim=JOINT_DIM, action_dim=ACTION_DIM
+        embed_dim=EMBED_DIM,
+        latent_dim=LATENT_DIM,
+        joint_dim=JOINT_DIM,
+        action_dim=ACTION_DIM,
+        nhead=NHEAD,
+        num_layers=NUM_LAYERS,
     )
     actions = torch.rand(B, CHUNK, ACTION_DIM)
     joints = torch.rand(B, JOINT_DIM)

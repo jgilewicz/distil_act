@@ -22,7 +22,7 @@ def collect_episode(
     episode_idx: int,
     n_steps: int,
     log: Logger,
-) -> float:
+) -> tuple[float, bool]:
     obs = env.reset()
     expert.reset()
 
@@ -44,9 +44,16 @@ def collect_episode(
         recorder.close()
 
     final_dist = float(np.linalg.norm(env.data.xpos[env.ee_id] - obs[-3:]))
-    outcome = "reached" if terminated else "truncated"
-    log.info(f"Episode {episode_idx:3d} | {outcome} | final dist {final_dist:.4f} m")
-    return final_dist
+
+    if not terminated:
+        dataset.discard_last_episode(recorder)
+        log.info(
+            f"Episode {episode_idx:3d} | truncated (discarded) | final dist {final_dist:.4f} m"
+        )
+    else:
+        log.info(f"Episode {episode_idx:3d} | reached | final dist {final_dist:.4f} m")
+
+    return final_dist, terminated
 
 
 def main() -> None:
@@ -55,7 +62,7 @@ def main() -> None:
 
     log = Logger(col["log_file"])
     log.info(
-        f"Starting data collection — {col['n_episodes']} episodes → {col['dataset_dir']}"
+        f"Starting data collection — {col['n_episodes']} successful episodes → {col['dataset_dir']}"
     )
     n_cameras = len(col["render_cameras"])
     log.info(
@@ -71,6 +78,8 @@ def main() -> None:
     )
 
     distances = []
+    n_target = col["n_episodes"]
+    attempt = 0
     with SceneRenderer(
         env,
         height=cfg["renderer"]["height"],
@@ -78,30 +87,44 @@ def main() -> None:
         camera_list=col["render_cameras"],
         show_viewer=SHOW_VIEWER,
     ) as renderer:
-        for i in range(col["n_episodes"]):
-            dist = collect_episode(
+        while len(distances) < n_target:
+            dist, success = collect_episode(
                 env,
                 expert,
                 renderer,
                 dataset,
-                i,
+                attempt,
                 col["n_steps"],
                 log,
             )
-            distances.append(dist)
+            attempt += 1
+            if success:
+                distances.append(dist)
+            log.info(f"Progress: {len(distances)}/{n_target} successful episodes")
 
+    success_rate = len(distances) / attempt
     dataset.save_metadata(
         {
-            "n_episodes": col["n_episodes"],
+            "n_episodes": n_target,
+            "n_attempts": attempt,
+            "success_rate": success_rate,
             "n_steps": col["n_steps"],
             "cameras": col["render_cameras"],
-            "img_shape": [n_cameras, cfg["renderer"]["height"], cfg["renderer"]["width"], 3],
+            "img_shape": [
+                n_cameras,
+                cfg["renderer"]["height"],
+                cfg["renderer"]["width"],
+                3,
+            ],
             "joint_dim": env.model.nq,
             "mean_final_dist_m": float(np.mean(distances)),
         }
     )
 
-    log.info(f"Done. Mean final distance: {np.mean(distances):.4f} m")
+    log.info(
+        f"Done. {n_target} episodes collected in {attempt} attempts ({success_rate:.1%} success rate)"
+    )
+    log.info(f"Mean final distance: {np.mean(distances):.4f} m")
     log.info(f"Dataset saved to: {os.path.abspath(col['dataset_dir'])}")
 
 

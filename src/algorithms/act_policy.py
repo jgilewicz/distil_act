@@ -10,12 +10,14 @@ class EncoderCVAE(nn.Module):
         latent_dim: int = 128,
         joint_dim: int = 6,
         action_dim: int = 6,
+        nhead: int = 8,
+        num_layers: int = 4,
     ):
         super().__init__()
         z_encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=8, batch_first=True
+            d_model=embed_dim, nhead=nhead, batch_first=True
         )
-        self.z_encoder = nn.TransformerEncoder(z_encoder_layer, num_layers=4)
+        self.z_encoder = nn.TransformerEncoder(z_encoder_layer, num_layers=num_layers)
         self.cls_token = nn.Parameter(torch.randn(1, 1, embed_dim))
 
         self.action_projection = nn.Linear(action_dim, embed_dim)
@@ -59,28 +61,33 @@ class ACT(nn.Module):
         latent_dim: int = 128,
         joint_dim: int = 6,
         action_query_len: int = 50,
+        nhead: int = 8,
+        num_layers: int = 4,
+        num_cameras: int = 2,
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.latent_dim = latent_dim
 
-        self.image_embedding = ImageEmbedding(embed_dim=embed_dim)
+        self.image_embedding = ImageEmbedding(embed_dim=embed_dim, num_cameras=num_cameras)
         self.joints_projection = nn.Linear(joint_dim, embed_dim)
 
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embed_dim, nhead=8, batch_first=True
+            d_model=embed_dim, nhead=nhead, batch_first=True
         )
         decoder_layer = nn.TransformerDecoderLayer(
-            d_model=embed_dim, nhead=8, batch_first=True
+            d_model=embed_dim, nhead=nhead, batch_first=True
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=4)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=4)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
 
         self.encoder_cvae = EncoderCVAE(
             embed_dim=embed_dim,
             latent_dim=latent_dim,
             joint_dim=joint_dim,
             action_dim=action_dim,
+            nhead=nhead,
+            num_layers=num_layers,
         )
         self.z_projection = nn.Linear(latent_dim, embed_dim)
 

@@ -35,3 +35,7 @@ class DatasetManager:
         episode_path = os.path.join(self.episodes_dir, episode_filename)
         self.current_episode_idx += 1
         return EpisodeRecorder(episode_path, self.img_shape, self.joint_dim)
+
+    def discard_last_episode(self, recorder: EpisodeRecorder) -> None:
+        self.current_episode_idx -= 1
+        os.remove(recorder.path)

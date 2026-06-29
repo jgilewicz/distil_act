@@ -5,7 +5,7 @@ from torchvision.models import EfficientNet_B3_Weights
 
 
 class ImageEmbedding(nn.Module):
-    def __init__(self, embed_dim: int = 256, num_patches_side: int = 7):
+    def __init__(self, embed_dim: int = 256, num_patches_side: int = 7, num_cameras: int = 2):
         super().__init__()
         model = models.efficientnet_b3(weights=EfficientNet_B3_Weights.IMAGENET1K_V1)
         self.backbone = model.features
@@ -18,7 +18,7 @@ class ImageEmbedding(nn.Module):
 
         num_patches = num_patches_side**2
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, embed_dim))
-        self.camera_embedding = nn.Embedding(2, embed_dim)
+        self.camera_embedding = nn.Embedding(num_cameras, embed_dim)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = images.shape

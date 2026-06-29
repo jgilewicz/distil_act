@@ -1,66 +1,106 @@
+import os
+
+import torch
+import wandb
+from dotenv import load_dotenv
+
+from algorithms.act_policy import ACT
 from dataset.dataloader import make_dataloader
 from utils.config import load_config
-from algorithms.act_policy import ACT
-from algorithms.chunking_buffer import ChunkingBuffer
-import torch
+from utils.logger import Logger
+
+load_dotenv()
+logger = Logger("logs/training.log")
 
 
-def train():
-    cfg = load_config("config.yaml")
-    act = ACT(action_dim=6, embed_dim=256, latent_dim=128, joint_dim=6)
-    chunk_buffer = ChunkingBuffer(
-        chunk_size=cfg["training"]["chunk_size"], action_size=6
-    )
-
-    train_loader = make_dataloader(cfg)
-    batch = next(iter(train_loader))
-
+def training_step(act: ACT, optimizer: torch.optim.Optimizer, batch: dict, beta: float):
     images = batch["images"].float()
     qpos = batch["qpos"].float()
     actions = batch["actions"].float()
 
-    print(f"Images shape: {images.shape}")
-    print(f"QPOS shape: {qpos.shape}")
-    print(f"Actions shape: {actions.shape}")
-
     pred, mu, logvar = act(images, qpos, actions)
+    loss = torch.nn.functional.mse_loss(pred, actions, reduction="mean")
 
-    print(f"Pred actions shape: {pred.shape}")
-    print(f"Mu shape: {mu.shape}")
-    print(f"Logvar shape: {logvar.shape}")
+    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
-    assert pred.shape == actions.shape, f"Expected {actions.shape}, got {pred.shape}"
-    assert mu.shape == (images.shape[0], 128), (
-        f"Expected ({images.shape[0]}, 128), got {mu.shape}"
+    total_loss = loss + beta * kl_loss
+
+    optimizer.zero_grad()
+    total_loss.backward()
+    optimizer.step()
+
+    logger.info(
+        f"Loss: {loss.item()}, KL Loss: {kl_loss.item()}, Total Loss: {total_loss.item()}"
     )
-    print("ACT OK")
 
-    print("\n--- ChunkingBuffer test ---")
-    chunk_buffer.reset()
+    wandb.log(
+        {
+            "loss/mse": loss.item(),
+            "loss/kl": kl_loss.item(),
+            "loss/total": total_loss.item(),
+        }
+    )
 
-    single_image = images[0:1]
-    single_qpos = qpos[0:1]
+    return total_loss
 
-    for t in range(5):
-        with torch.no_grad():
-            pred_single = act(single_image, single_qpos)  # inferencja bez actions
-        chunk_buffer.add(pred_single.squeeze(0), t)
-        action = chunk_buffer.get_action(t)
-        print(
-            f"t={t} | buffer size: {len(chunk_buffer.buffer)} | action shape: {action.shape} | action[:3]: {action[:3].numpy().round(3)}"
-        )
 
-    print("\nt=2 z pełnym buforem (średnia ważona z 3 predykcji):")
-    chunk_buffer.reset()
-    for t in range(3):
-        with torch.no_grad():
-            pred_single = act(single_image, single_qpos)
-        chunk_buffer.add(pred_single.squeeze(0), t)
+def train():
+    cfg = load_config("config.yaml")
 
-    action_t2 = chunk_buffer.get_action(t=2)
-    print(f"action shape: {action_t2.shape}")
-    print(f"buffer size po evict: {len(chunk_buffer.buffer)}")
-    print("ChunkingBuffer OK")
+    wandb.init(
+        project=cfg["wandb"]["project"],
+        entity=cfg["wandb"]["entity"],
+        config={
+            **cfg["training"],
+            "wandb": cfg["wandb"],
+        },
+    )
+
+    t = cfg["training"]
+    act = ACT(
+        action_dim=t["action_dim"],
+        embed_dim=t["embed_dim"],
+        latent_dim=t["latent_dim"],
+        joint_dim=t["joint_dim"],
+        action_query_len=t["chunk_size"],
+        nhead=t["nhead"],
+        num_layers=t["num_layers"],
+        num_cameras=t["num_cameras"],
+    )
+
+    beta = cfg["training"]["beta"]
+    epochs = cfg["training"]["epochs"]
+    lr = cfg["training"]["lr"]
+
+    train_loader = make_dataloader(cfg)
+
+    optim = torch.optim.AdamW(act.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
+
+    for epoch in range(epochs):
+        for batch in train_loader:
+            training_step(act, optim, batch, beta)
+
+        scheduler.step()
+        wandb.log({"lr": scheduler.get_last_lr()[0], "epoch": epoch + 1})
+
+        if (epoch + 1) % 10 == 0:
+            torch.save(act.state_dict(), f"artifacts/act_model_epoch_{epoch + 1}.pt")
+            logger.info(f"Saved model at epoch {epoch + 1}")
+
+    if not os.path.exists("artifacts"):
+        os.makedirs("artifacts")
+        logger.info("Created artifacts directory.")
+
+    torch.save(act.state_dict(), "artifacts/act_model_final.pt")
+
+    artifact = wandb.Artifact("act_model", type="model")
+    artifact.add_file("artifacts/act_model_final.pt")
+    wandb.log_artifact(artifact)
+
+    wandb.finish()
+
+    logger.info("Training completed and final model saved.")
 
 
 if __name__ == "__main__":

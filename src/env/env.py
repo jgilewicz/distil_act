@@ -25,11 +25,12 @@ def build_model(scene_xml_path: str) -> mujoco.MjModel:
 
 def sample_target_position(
     rng: np.random.Generator,
-    target_xy_range: tuple[float, float],
+    target_x_range: tuple[float, float],
+    target_y_range: tuple[float, float],
     target_z_range: tuple[float, float],
 ) -> np.ndarray:
-    x = rng.uniform(*target_xy_range)
-    y = rng.uniform(*target_xy_range)
+    x = rng.uniform(*target_x_range)
+    y = rng.uniform(*target_y_range)
     z = rng.uniform(*target_z_range)
     return np.array([x, y, z])
 
@@ -38,8 +39,9 @@ class ReachEnvironment:
     def __init__(
         self,
         scene_xml_path: str = "models/reach_scene.xml",
-        target_xy_range: tuple[float, float] = (-0.16, 0.18),
-        target_z_range: tuple[float, float] = (0.03, 0.20),
+        target_x_range: tuple[float, float] = (0.0, 0.13),
+        target_y_range: tuple[float, float] = (0.08, 0.20),
+        target_z_range: tuple[float, float] = (0.10, 0.20),
         reach_threshold: float = 1e-2,
         ee_body_name: str = "robot_gripper_moving_finger",
         seed: int = 0,
@@ -47,7 +49,8 @@ class ReachEnvironment:
         self.model = build_model(scene_xml_path)
         self.data = mujoco.MjData(self.model)
         self.rng = np.random.default_rng(seed)
-        self.target_xy_range = target_xy_range
+        self.target_x_range = target_x_range
+        self.target_y_range = target_y_range
         self.target_z_range = target_z_range
         self.reach_threshold = reach_threshold
 
@@ -79,7 +82,7 @@ class ReachEnvironment:
     def reset(self) -> np.ndarray:
         mujoco.mj_resetData(self.model, self.data)
         target_pos = sample_target_position(
-            self.rng, self.target_xy_range, self.target_z_range
+            self.rng, self.target_x_range, self.target_y_range, self.target_z_range
         )
         self.data.mocap_pos[self.target_mocap_id] = target_pos
         mujoco.mj_forward(self.model, self.data)

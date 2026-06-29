@@ -4,6 +4,7 @@ import numpy as np
 
 class EpisodeRecorder:
     def __init__(self, file_path: str, img_shape: tuple, joint_dim: int) -> None:
+        self.path = file_path
         self.file = h5py.File(file_path, "w")
 
         self.frames = self.file.create_dataset(

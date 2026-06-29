@@ -1,7 +1,8 @@
 env:
   scene_xml_path: "models/reach_scene.xml"
-  target_xy_range: [0, 0.2]
-  target_z_range: [0.1, 0.20]
+  target_x_range: [0.0, 0.13]
+  target_y_range: [0.08, 0.20]
+  target_z_range: [0.10, 0.20]
   reach_threshold: 0.01
 
 expert:
@@ -15,8 +16,8 @@ renderer:
   width: 640
 
 collection:
-  n_episodes: 50
-  n_steps: 400
+  n_episodes: 200
+  n_steps: 1000
   dataset_dir: "data/reach"
   log_file: "logs/data_gathering.log"
   render_cameras:
@@ -25,7 +26,21 @@ collection:
   hf_repo_id: "jgilewicz/distil_act_reach_env"
 
 training:
+  action_dim: 6
+  embed_dim: 256
+  latent_dim: 128
+  joint_dim: 6
+  nhead: 8
+  num_layers: 4
+  num_cameras: 2
+  beta: 0.1
   chunk_size: 50
-  batch_size: 32
+  batch_size: 16
   val_ratio: 0.1
   num_workers: 4
+  epochs: 300
+  lr: 1e-4
+
+wandb:
+  project: "distil_act"
+  entity: "jg_projects"
