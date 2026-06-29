@@ -38,7 +38,7 @@ training:
   batch_size: 16
   val_ratio: 0.1
   num_workers: 4
-  epochs: 300
+  max_steps: 200
   lr: 1e-4
 
 wandb:

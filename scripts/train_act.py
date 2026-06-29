@@ -1,3 +1,4 @@
+import itertools
 import os
 
 import torch
@@ -13,10 +14,10 @@ load_dotenv()
 logger = Logger("logs/training.log")
 
 
-def training_step(act: ACT, optimizer: torch.optim.Optimizer, batch: dict, beta: float):
-    images = batch["images"].float()
-    qpos = batch["qpos"].float()
-    actions = batch["actions"].float()
+def training_step(act: ACT, optimizer: torch.optim.Optimizer, batch: dict, beta: float, device: torch.device):
+    images = batch["images"].float().to(device)
+    qpos = batch["qpos"].float().to(device)
+    actions = batch["actions"].float().to(device)
 
     pred, mu, logvar = act(images, qpos, actions)
     loss = torch.nn.functional.mse_loss(pred, actions, reduction="mean")
@@ -56,6 +57,14 @@ def train():
         },
     )
 
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    logger.info(f"Using device: {device}")
+
     t = cfg["training"]
     act = ACT(
         action_dim=t["action_dim"],
@@ -67,30 +76,27 @@ def train():
         num_layers=t["num_layers"],
         num_cameras=t["num_cameras"],
     )
+    act = act.to(device)
 
     beta = cfg["training"]["beta"]
-    epochs = cfg["training"]["epochs"]
+    max_steps = cfg["training"]["max_steps"]
     lr = cfg["training"]["lr"]
 
     train_loader = make_dataloader(cfg)
 
     optim = torch.optim.AdamW(act.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=epochs)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=max_steps)
 
-    for epoch in range(epochs):
-        for batch in train_loader:
-            training_step(act, optim, batch, beta)
+    os.makedirs("artifacts", exist_ok=True)
 
+    for step, batch in enumerate(itertools.islice(itertools.cycle(train_loader), max_steps), start=1):
+        training_step(act, optim, batch, beta, device)
         scheduler.step()
-        wandb.log({"lr": scheduler.get_last_lr()[0], "epoch": epoch + 1})
+        wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
 
-        if (epoch + 1) % 10 == 0:
-            torch.save(act.state_dict(), f"artifacts/act_model_epoch_{epoch + 1}.pt")
-            logger.info(f"Saved model at epoch {epoch + 1}")
-
-    if not os.path.exists("artifacts"):
-        os.makedirs("artifacts")
-        logger.info("Created artifacts directory.")
+        if step % 20 == 0:
+            torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
+            logger.info(f"Saved model at step {step}")
 
     torch.save(act.state_dict(), "artifacts/act_model_final.pt")
 
