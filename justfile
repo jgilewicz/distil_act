@@ -11,7 +11,7 @@ collect:
 
 # collect expert demonstrations headless (no viewer window)
 collect-headless:
-    SHOW_VIEWER=false uv run python3 scripts/collect_data.py
+    MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collect_data.py
 
 # run test suite
 test:
