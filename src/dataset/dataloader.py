@@ -5,6 +5,7 @@ import h5py
 import torch
 from huggingface_hub import snapshot_download
 from torch.utils.data import DataLoader, Dataset
+import numpy as np
 
 
 def _ensure_data(dataset_dir: str, repo_id: str) -> None:
@@ -30,12 +31,20 @@ class EpisodeDataset(Dataset):
 
         self._chunk_size = chunk_size
         self._index = []
+
+        all_joints = []
+
         for ep in episodes:
             with h5py.File(ep, "r") as f:
                 n_steps = f["timestamps"].shape[0]
+                all_joints.append(f["joints"][:])
 
             for t in range(n_steps - chunk_size):
                 self._index.append((str(ep), t))
+
+        all_joints = np.concatenate(all_joints, axis=0)
+        self.mean = torch.from_numpy(np.mean(all_joints, axis=0)).float()
+        self.std = torch.from_numpy(np.std(all_joints, axis=0)).float()
 
     def __len__(self) -> int:
         return len(self._index)
@@ -49,9 +58,12 @@ class EpisodeDataset(Dataset):
 
         return {
             "images": torch.from_numpy(images).permute(0, 3, 1, 2).float() / 255.0,
-            "qpos": torch.from_numpy(qpos.copy()),
-            "actions": torch.from_numpy(actions.copy()),
+            "qpos": self._normalise(torch.from_numpy(qpos.copy())),
+            "actions": self._normalise(torch.from_numpy(actions.copy())),
         }
+
+    def _normalise(self, qpos: torch.Tensor) -> torch.Tensor:
+        return (qpos - self.mean) / self.std
 
 
 def make_dataloader(cfg: dict, split: str = "train") -> DataLoader:

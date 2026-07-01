@@ -14,7 +14,13 @@ load_dotenv()
 logger = Logger("logs/training.log")
 
 
-def training_step(act: ACT, optimizer: torch.optim.Optimizer, batch: dict, beta: float, device: torch.device):
+def training_step(
+    act: ACT,
+    optimizer: torch.optim.Optimizer,
+    batch: dict,
+    beta: float,
+    device: torch.device,
+):
     images = batch["images"].float().to(device)
     qpos = batch["qpos"].float().to(device)
     actions = batch["actions"].float().to(device)
@@ -89,7 +95,9 @@ def train():
 
     os.makedirs("artifacts", exist_ok=True)
 
-    for step, batch in enumerate(itertools.islice(itertools.cycle(train_loader), max_steps), start=1):
+    for step, batch in enumerate(
+        itertools.islice(itertools.cycle(train_loader), max_steps), start=1
+    ):
         training_step(act, optim, batch, beta, device)
         scheduler.step()
         wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
@@ -98,7 +106,14 @@ def train():
             torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
             logger.info(f"Saved model at step {step}")
 
-    torch.save(act.state_dict(), "artifacts/act_model_final.pt")
+    torch.save(
+        {
+            "model": act.state_dict(),
+            "norm_mean": train_loader.dataset.mean,
+            "norm_std": train_loader.dataset.std,
+        },
+        "artifacts/act_model_final.pt",
+    )
 
     artifact = wandb.Artifact("act_model", type="model")
     artifact.add_file("artifacts/act_model_final.pt")
