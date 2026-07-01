@@ -52,7 +52,6 @@ def training_step(
         )
 
 
-
 def train():
     cfg = load_config("config.yaml")
 

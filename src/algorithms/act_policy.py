@@ -69,7 +69,9 @@ class ACT(nn.Module):
         self.embed_dim = embed_dim
         self.latent_dim = latent_dim
 
-        self.image_embedding = ImageEmbedding(embed_dim=embed_dim, num_cameras=num_cameras)
+        self.image_embedding = ImageEmbedding(
+            embed_dim=embed_dim, num_cameras=num_cameras
+        )
         self.joints_projection = nn.Linear(joint_dim, embed_dim)
 
         encoder_layer = nn.TransformerEncoderLayer(
