@@ -19,6 +19,8 @@ def training_step(
     optimizer: torch.optim.Optimizer,
     batch: dict,
     beta: float,
+    step: int,
+    log_interval: int,
     device: torch.device,
 ):
     images = batch["images"].float().to(device)
@@ -36,19 +38,19 @@ def training_step(
     total_loss.backward()
     optimizer.step()
 
-    logger.info(
-        f"Loss: {loss.item()}, KL Loss: {kl_loss.item()}, Total Loss: {total_loss.item()}"
-    )
+    if step % log_interval == 0:
+        logger.info(
+            f"Step: {step}, Loss: {loss.item()}, KL Loss: {kl_loss.item()}, Total Loss: {total_loss.item()}"
+        )
+        wandb.log(
+            {
+                "loss/mse": loss.item(),
+                "loss/kl": kl_loss.item(),
+                "loss/total": total_loss.item(),
+                "step": step,
+            }
+        )
 
-    wandb.log(
-        {
-            "loss/mse": loss.item(),
-            "loss/kl": kl_loss.item(),
-            "loss/total": total_loss.item(),
-        }
-    )
-
-    return total_loss
 
 
 def train():
@@ -88,6 +90,8 @@ def train():
     max_steps = cfg["training"]["max_steps"]
     lr = cfg["training"]["lr"]
     warmup_steps = cfg["training"]["warmup_steps"]
+    log_interval = cfg["training"]["log_interval"]
+    save_interval = cfg["training"]["save_interval"]
 
     train_loader = make_dataloader(cfg)
 
@@ -108,22 +112,28 @@ def train():
     for step, batch in enumerate(
         itertools.islice(itertools.cycle(train_loader), max_steps), start=1
     ):
-        training_step(act, optim, batch, beta, device)
+        training_step(act, optim, batch, beta, step, log_interval, device)
         scheduler.step()
         wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
 
-        if step % 20 == 0:
-            torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
-            logger.info(f"Saved model at step {step}")
+        if step % save_interval == 0:
+            try:
+                torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
+                logger.info(f"Saved model at step {step}")
+            except RuntimeError as e:
+                logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
-    torch.save(
-        {
-            "model": act.state_dict(),
-            "norm_mean": train_loader.dataset.mean,
-            "norm_std": train_loader.dataset.std,
-        },
-        "artifacts/act_model_final.pt",
-    )
+    try:
+        torch.save(
+            {
+                "model": act.state_dict(),
+                "norm_mean": train_loader.dataset.mean,
+                "norm_std": train_loader.dataset.std,
+            },
+            "artifacts/act_model_final.pt",
+        )
+    except RuntimeError as e:
+        logger.warning(f"Final model save failed: {e}")
 
     artifact = wandb.Artifact("act_model", type="model")
     artifact.add_file("artifacts/act_model_final.pt")
