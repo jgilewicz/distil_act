@@ -87,11 +87,21 @@ def train():
     beta = cfg["training"]["beta"]
     max_steps = cfg["training"]["max_steps"]
     lr = cfg["training"]["lr"]
+    warmup_steps = cfg["training"]["warmup_steps"]
 
     train_loader = make_dataloader(cfg)
 
     optim = torch.optim.AdamW(act.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=max_steps)
+
+    warmup = torch.optim.lr_scheduler.LinearLR(
+        optim, start_factor=0.01, end_factor=1.0, total_iters=warmup_steps
+    )
+    cosine = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optim, T_max=max_steps - warmup_steps
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optim, schedulers=[warmup, cosine], milestones=[warmup_steps]
+    )
 
     os.makedirs("artifacts", exist_ok=True)
 
