@@ -6,10 +6,20 @@ from torchvision.models import EfficientNet_B3_Weights
 
 class ImageEmbedding(nn.Module):
     def __init__(
-        self, embed_dim: int = 256, num_patches_side: int = 7, num_cameras: int = 2
+        self,
+        embed_dim: int = 256,
+        num_patches_side: int = 7,
+        num_cameras: int = 2,
+        distil: bool = False,
     ):
         super().__init__()
-        model = models.efficientnet_b3(weights=EfficientNet_B3_Weights.IMAGENET1K_V1)
+        model = (
+            models.efficientnet_b3(weights=EfficientNet_B3_Weights.IMAGENET1K_V1)
+            if not distil
+            else models.mobilenet_v3_large(
+                weights=models.MobileNet_V3_Large_Weights.IMAGENET1K_V1
+            )
+        )
         self.backbone = model.features
 
         for param in self.backbone.parameters():

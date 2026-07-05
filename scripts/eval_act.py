@@ -44,7 +44,7 @@ def eval():
     logger.info(f"Using device: {device}")
 
     checkpoint = torch.load(
-        "artifacts/act_model_final.pt", map_location=device, weights_only=True
+        cfg["eval"]["checkpoint"], map_location=device, weights_only=True
     )
     norm_mean = checkpoint["norm_mean"].to(device)
     norm_std = checkpoint["norm_std"].to(device)
@@ -72,7 +72,7 @@ def eval():
         target_y_range=tuple(e["target_y_range"]),
         target_z_range=tuple(e["target_z_range"]),
         reach_threshold=e["reach_threshold"],
-        seed=1,
+        seed=cfg["eval"]["seed"],
     )
 
     r = cfg["renderer"]
@@ -83,8 +83,8 @@ def eval():
     buffer = ChunkingBuffer(chunk_size=chunk_size, action_size=t["action_dim"])
     query_every = max(1, chunk_size // 5)
 
-    os.makedirs("artifacts", exist_ok=True)
-    video_path = "artifacts/eval.mp4"
+    video_path = cfg["eval"]["video_path"]
+    os.makedirs(os.path.dirname(video_path), exist_ok=True)
     video_writer = None
     terminated = False
 

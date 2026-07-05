@@ -39,5 +39,9 @@ eval:
     uv run mjpython scripts/eval_act.py
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
-push-to-hub:
-    uv run python3 scripts/push_to_hub.py
+push-data:
+    uv run python3 scripts/push_data_to_hub.py
+
+# push trained teacher checkpoint to Hugging Face Hub (requires huggingface-cli login)
+push-model:
+    uv run python3 scripts/push_model_to_hub.py
