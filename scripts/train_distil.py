@@ -1,5 +1,4 @@
 import os
-import tracemalloc
 
 import torch
 import wandb
@@ -162,8 +161,6 @@ def train():
 
     os.makedirs("artifacts", exist_ok=True)
 
-    tracemalloc.start()
-    snapshot_prev = None
     step = 0
 
     while step < max_steps:
@@ -188,13 +185,6 @@ def train():
             scheduler.step()
             if step % log_interval == 0:
                 wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
-
-                snapshot = tracemalloc.take_snapshot()
-                if snapshot_prev is not None:
-                    top_stats = snapshot.compare_to(snapshot_prev, "lineno")
-                    for stat in top_stats[:10]:
-                        logger.info(f"[malloc] {stat}")
-                snapshot_prev = snapshot
 
             if step % save_interval == 0:
                 try:
