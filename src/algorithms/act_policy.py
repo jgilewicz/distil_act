@@ -64,6 +64,7 @@ class ACT(nn.Module):
         nhead: int = 8,
         num_layers: int = 4,
         num_cameras: int = 2,
+        teacher_latent_dim: int | None = None,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -95,6 +96,9 @@ class ACT(nn.Module):
 
         self.action_head = nn.Linear(embed_dim, action_dim)
         self.action_queries = nn.Embedding(action_query_len, embed_dim)
+
+        if teacher_latent_dim is not None:
+            self.latent_projection = nn.Linear(self.latent_dim, teacher_latent_dim)
 
     def forward(
         self,

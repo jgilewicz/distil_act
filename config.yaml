@@ -54,6 +54,7 @@ distillation:
   temperature: 2.0
   alpha: 0.5
   gamma: 0.2
+  teacher_latent_dim: 128
 
 eval:
   checkpoint: "artifacts/act_model_final.pt"

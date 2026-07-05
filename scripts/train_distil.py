@@ -45,12 +45,15 @@ def training_step(
         teacher_pred, teacher_mu, teacher_logvar = teacher(images, qpos, actions)
 
     pred, mu, logvar = student(images, qpos, actions)
+    logvar_s_proj = student.latent_projection(logvar)
 
     hard_loss = torch.nn.functional.mse_loss(pred, actions, reduction="mean")
     soft_loss = torch.nn.functional.mse_loss(pred, teacher_pred, reduction="mean")
 
     prior_kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-    distill_kl = distillation_kl(mu, logvar, teacher_mu, teacher_logvar, temperature)
+    distill_kl = distillation_kl(
+        mu, logvar_s_proj, teacher_mu, teacher_logvar, temperature
+    )
 
     total_loss = (
         alpha * hard_loss
@@ -128,6 +131,7 @@ def train():
         nhead=cfg["distillation"]["nhead"],
         num_layers=cfg["distillation"]["num_layers"],
         num_cameras=t["num_cameras"],
+        teacher_latent_dim=cfg["distillation"]["teacher_latent_dim"],
     )
     distil_act = distil_act.to(device)
 
