@@ -46,13 +46,14 @@ def training_step(
 
     pred, mu, logvar = student(images, qpos, actions)
     logvar_s_proj = student.latent_projection(logvar)
+    mu_s_proj = student.latent_projection(mu)
 
     hard_loss = torch.nn.functional.mse_loss(pred, actions, reduction="mean")
     soft_loss = torch.nn.functional.mse_loss(pred, teacher_pred, reduction="mean")
 
     prior_kl = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
     distill_kl = distillation_kl(
-        mu, logvar_s_proj, teacher_mu, teacher_logvar, temperature
+        mu_s_proj, logvar_s_proj, teacher_mu, teacher_logvar, temperature
     )
 
     total_loss = (
