@@ -29,3 +29,6 @@ artifacts/
 # OS
 
 .DS_Store
+
+# wandb
+.wandb/
