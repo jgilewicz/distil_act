@@ -1,5 +1,5 @@
-import itertools
 import os
+import tracemalloc
 
 import torch
 import wandb
@@ -16,7 +16,7 @@ logger = Logger("logs/training.log")
 
 
 def distillation_kl(mu_s, logvar_s, mu_t, logvar_t, temperature):
-    logvar_t_soft = logvar_t + 2 * torch.log(torch.tensor(temperature))
+    logvar_t_soft = logvar_t + 2 * torch.log(torch.tensor(temperature, device=mu_t.device))
     var_s = logvar_s.exp()
     var_t_soft = logvar_t_soft.exp()
     return 0.5 * torch.mean(
@@ -162,34 +162,49 @@ def train():
 
     os.makedirs("artifacts", exist_ok=True)
 
-    for step, batch in enumerate(
-        itertools.islice(itertools.cycle(train_loader), max_steps), start=1
-    ):
-        training_step(
-            distil_act,
-            act,
-            optim,
-            batch,
-            beta,
-            alpha,
-            gamma,
-            temperature,
-            step,
-            log_interval,
-            device,
-        )
-        scheduler.step()
-        wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
+    tracemalloc.start()
+    snapshot_prev = None
+    step = 0
 
-        if step % save_interval == 0:
-            try:
-                torch.save(
-                    distil_act.state_dict(),
-                    f"artifacts/distil_act_model_step_{step}.pt",
-                )
-                logger.info(f"Saved model at step {step}")
-            except RuntimeError as e:
-                logger.warning(f"Checkpoint save failed at step {step}: {e}")
+    while step < max_steps:
+        for batch in train_loader:
+            step += 1
+            if step > max_steps:
+                break
+
+            training_step(
+                distil_act,
+                act,
+                optim,
+                batch,
+                beta,
+                alpha,
+                gamma,
+                temperature,
+                step,
+                log_interval,
+                device,
+            )
+            scheduler.step()
+            if step % log_interval == 0:
+                wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
+
+                snapshot = tracemalloc.take_snapshot()
+                if snapshot_prev is not None:
+                    top_stats = snapshot.compare_to(snapshot_prev, "lineno")
+                    for stat in top_stats[:10]:
+                        logger.info(f"[malloc] {stat}")
+                snapshot_prev = snapshot
+
+            if step % save_interval == 0:
+                try:
+                    torch.save(
+                        distil_act.state_dict(),
+                        f"artifacts/distil_act_model_step_{step}.pt",
+                    )
+                    logger.info(f"Saved model at step {step}")
+                except RuntimeError as e:
+                    logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
     try:
         torch.save(

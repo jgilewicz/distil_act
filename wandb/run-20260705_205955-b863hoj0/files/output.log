@@ -1,0 +1,101 @@
+[INFO] 20:59:57 — Using device: mps
+/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/utils/data/dataloader.py:1095: UserWarning: 'pin_memory' argument is set as true but not supported on MPS now, device pinned memory won't be used.
+  super().__init__(loader)
+Traceback (most recent call last):
+  File "/Users/kuba/Home/projekty/distil_act/scripts/train_distil.py", line 45, in training_step
+    teacher_pred, teacher_mu, teacher_logvar = teacher(images, qpos, actions)
+                                               ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/src/algorithms/act_policy.py", line 111, in forward
+    image_tokens = self.image_embedding(images)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/src/algorithms/embedding.py", line 39, in forward
+    features = self.backbone(images)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/container.py", line 253, in forward
+    input = module(input)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/container.py", line 253, in forward
+    input = module(input)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torchvision/models/efficientnet.py", line 165, in forward
+    result = self.block(input)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/container.py", line 253, in forward
+    input = module(input)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torchvision/ops/misc.py", line 260, in forward
+    scale = self._scale(input)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torchvision/ops/misc.py", line 254, in _scale
+    scale = self.fc1(scale)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1778, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/module.py", line 1789, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 565, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/nn/modules/conv.py", line 560, in _conv_forward
+    return F.conv2d(
+           ~~~~~~~~^
+        input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/kuba/Home/projekty/distil_act/scripts/train_distil.py", line 231, in <module>
+    train()
+    ~~~~~^^
+  File "/Users/kuba/Home/projekty/distil_act/scripts/train_distil.py", line 175, in train
+    training_step(
+    ~~~~~~~~~~~~~^
+        distil_act,
+        ^^^^^^^^^^^
+    ...<9 lines>...
+        device,
+        ^^^^^^^
+    )
+    ^
+  File "/Users/kuba/Home/projekty/distil_act/scripts/train_distil.py", line 44, in training_step
+    with torch.no_grad():
+         ~~~~~~~~~~~~~^^
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/autograd/grad_mode.py", line 84, in __exit__
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+
+  File "/Users/kuba/Home/projekty/distil_act/.venv/lib/python3.14/site-packages/torch/utils/data/_utils/signal_handling.py", line 73, in handler
+    _error_if_any_worker_fails()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+RuntimeError: DataLoader worker (pid 70613) is killed by signal: Interrupt: 2.

@@ -1,0 +1,38 @@
+{
+  "os":  "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "python":  "CPython 3.14.4",
+  "startedAt":  "2026-07-05T18:59:55.954407Z",
+  "program":  "/Users/kuba/Home/projekty/distil_act/scripts/train_distil.py",
+  "codePath":  "scripts/train_distil.py",
+  "codePathLocal":  "scripts/train_distil.py",
+  "git":  {
+    "remote":  "git@github.com:jgilewicz/distil_act.git",
+    "commit":  "b63a2e57e163df9b6a3c0476995d3bc7e853e432"
+  },
+  "email":  "w1ndrunn3rr@gmail.com",
+  "root":  "/Users/kuba/Home/projekty/distil_act",
+  "host":  "MacBook-Air-Kuba.local",
+  "executable":  "/Users/kuba/Home/projekty/distil_act/.venv/bin/python3",
+  "cpu_count":  10,
+  "cpu_count_logical":  10,
+  "disk":  {
+    "/":  {
+      "total":  "245107195904",
+      "used":  "155910635520"
+    }
+  },
+  "memory":  {
+    "total":  "17179869184"
+  },
+  "apple":  {
+    "name":  "Apple M4",
+    "ecpuCores":  6,
+    "pcpuCores":  4,
+    "gpuCores":  8,
+    "memoryGb":  16,
+    "swapTotalBytes":  "1073741824",
+    "ramTotalBytes":  "17179869184",
+    "macModel":  "Mac16,12"
+  },
+  "writerId":  "4bnsllcfe8wkrcqw9x8cs4ik6xhh64sf"
+}

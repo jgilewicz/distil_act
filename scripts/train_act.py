@@ -1,4 +1,3 @@
-import itertools
 import os
 
 import torch
@@ -108,19 +107,23 @@ def train():
 
     os.makedirs("artifacts", exist_ok=True)
 
-    for step, batch in enumerate(
-        itertools.islice(itertools.cycle(train_loader), max_steps), start=1
-    ):
-        training_step(act, optim, batch, beta, step, log_interval, device)
-        scheduler.step()
-        wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
+    step = 0
+    while step < max_steps:
+        for batch in train_loader:
+            step += 1
+            if step > max_steps:
+                break
 
-        if step % save_interval == 0:
-            try:
-                torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
-                logger.info(f"Saved model at step {step}")
-            except RuntimeError as e:
-                logger.warning(f"Checkpoint save failed at step {step}: {e}")
+            training_step(act, optim, batch, beta, step, log_interval, device)
+            scheduler.step()
+            wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
+
+            if step % save_interval == 0:
+                try:
+                    torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
+                    logger.info(f"Saved model at step {step}")
+                except RuntimeError as e:
+                    logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
     try:
         torch.save(
