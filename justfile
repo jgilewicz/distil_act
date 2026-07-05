@@ -34,6 +34,10 @@ clean:
 train:
     uv run python3 scripts/train_act.py
 
+# distill the ACT policy into a smaller student model
+distill:
+    uv run python3 scripts/train_distil.py
+
 # evaluate the trained ACT policy with viewer (macOS requires mjpython)
 eval:
     uv run mjpython scripts/eval_act.py
