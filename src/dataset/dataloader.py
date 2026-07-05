@@ -74,4 +74,5 @@ def make_dataloader(cfg: dict, split: str = "train") -> DataLoader:
         shuffle=(split == "train"),
         num_workers=cfg["training"]["num_workers"],
         pin_memory=True,
+        persistent_workers=True,
     )
