@@ -35,7 +35,7 @@ training:
   num_cameras: 2
   beta: 0.05
   chunk_size: 50
-  batch_size: 16
+  batch_size: 32
   val_ratio: 0.1
   num_workers: 4
   max_steps: 50000
