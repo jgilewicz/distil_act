@@ -1,7 +1,7 @@
 [project]
 name = "act-distill"
 version = "0.1.0"
-description = "Add your description here"
+description = "ACT visuomotor policy distillation for a MuJoCo reach task"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

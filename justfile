@@ -34,6 +34,10 @@ clean:
 train:
     uv run python3 scripts/train_act.py
 
+# evaluate the trained ACT policy with viewer (macOS requires mjpython)
+eval:
+    uv run mjpython scripts/eval_act.py
+
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
 push-to-hub:
     uv run python3 scripts/push_to_hub.py

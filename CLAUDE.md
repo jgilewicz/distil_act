@@ -4,24 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a large simulation-trained teacher to a compressed student deployable on edge hardware.
+ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
 
-The reach task environment is complete: a low-cost robot arm in MuJoCo reaches randomly-sampled target positions. Expert demonstrations are collected via IK and saved to HDF5. A PyTorch dataset loader (`EpisodeDataset`) is ready for training.
+Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment.
 
 ## Commands
 
 ```bash
-uv sync              # install / sync dependencies
-just                 # list all available tasks
-just collect         # collect demos with viewer (macOS: uses mjpython)
-just collect-headless  # collect headless
-just train           # run ACT policy smoke test
-just test            # run test suite (pytest)
-just lint            # ruff check
-just fix             # ruff check --fix + ruff format
+uv sync                  # install / sync dependencies
+just                     # list all available tasks
+just collect             # collect demos with viewer (macOS: uses mjpython)
+just collect-headless    # collect headless
+just train               # train ACT policy
+just eval                # run trained policy with viewer (macOS: uses mjpython)
+just test                # run test suite (pytest)
+just lint                # ruff check
+just fix                 # ruff check --fix + ruff format
 ```
 
-On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` uses `uv run mjpython`, headless uses `uv run python3`.
+On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`.
 
 All configuration lives in `config.yaml` at the project root. No hardcoded constants in source files.
 
@@ -39,6 +40,12 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
                                                                           ↓
                                                                    EpisodeDataset
                                                                   (PyTorch loader)
+                                                                          ↓
+                                                                     ACT training
+                                                                          ↓
+                                                               act_model_final.pt
+                                                                          ↓
+                                                          eval_act.py + ChunkingBuffer
 ```
 
 ### Key files
@@ -63,11 +70,17 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
 - `EpisodeRecorder`: single HDF5 file with resizable datasets `frames` (uint8, shape `T×K×H×W×3`), `joints` (float32), `timestamps` (float64). K = number of cameras.
 - `DatasetManager`: manages `root_dir/episodes/episode_N.h5` layout; `img_shape` must be `(K, H, W, 3)`; auto-increments index from existing files; writes `metadata.json`.
 - `EpisodeDataset` (`src/dataset/dataloader.py`): PyTorch `Dataset`; `__getitem__` returns `{"images": (K,3,H,W), "qpos": (J,), "actions": (chunk_size,J)}`; batched to `(B,K,3,H,W)`. `make_dataloader()` returns a configured `DataLoader`.
+- Joint positions are z-score normalised using `mean`/`std` computed across the full training split; both are saved into `act_model_final.pt` for inference.
 
 **`src/algorithms/`**
-- `embedding.py` — `ImageEmbedding`: frozen EfficientNet-B3 backbone + AdaptiveAvgPool → linear projection; adds per-camera and positional embeddings; output shape `(B, K*P, embed_dim)` where P=49 patches. Hardcoded for K=2 cameras.
+- `embedding.py` — `ImageEmbedding`: frozen EfficientNet-B3 backbone + AdaptiveAvgPool → linear projection; adds per-camera and positional embeddings; output shape `(B, K*P, embed_dim)` where P=49 patches. On MPS, the AdaptiveAvgPool runs on CPU (non-divisible sizes unsupported on MPS).
 - `act_policy.py` — `ACT`: full encoder-decoder Transformer. Training: takes `(images, qpos, actions)`, runs CVAE encoder for latent z, returns `(pred_actions, mu, logvar)`. Inference: z=0, returns `pred_actions` only.
 - `chunking_buffer.py` — `ChunkingBuffer`: stores overlapping action chunk predictions; `get_action(t)` returns exponentially weighted average over all chunks that cover timestep t; evicts chunks older than `chunk_size` steps.
+
+**`scripts/eval_act.py`**
+- Loads `artifacts/act_model_final.pt` (model weights + `norm_mean` + `norm_std`).
+- Queries ACT every `chunk_size // 5` physics steps; `ChunkingBuffer` provides temporally ensembled actions for intermediate steps.
+- Renders passive viewer via `SceneRenderer`; writes `artifacts/eval.mp4` from the overhead camera.
 
 **`src/utils/`**
 - `logger.py` — `Logger(filename)`: logs `[INFO]`/`[WARNING]`/`[ERROR]` to stdout and file simultaneously.

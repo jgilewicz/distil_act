@@ -42,7 +42,7 @@ class ReachEnvironment:
         target_x_range: tuple[float, float] = (0.0, 0.13),
         target_y_range: tuple[float, float] = (0.08, 0.20),
         target_z_range: tuple[float, float] = (0.10, 0.20),
-        reach_threshold: float = 1e-2,
+        reach_threshold: float = 1e-1,
         ee_body_name: str = "robot_gripper_moving_finger",
         seed: int = 0,
     ) -> None:

@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 *.pyo
 .ruff_cache/
+.pytest_cache/
 
 # build
 dist/
@@ -17,3 +18,14 @@ dist/
 
 # env / secrets
 .env
+
+# Artifacts
+artifacts/
+
+# Claude 
+.claude/
+
+
+# OS
+
+.DS_Store
