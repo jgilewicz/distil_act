@@ -15,7 +15,9 @@ logger = Logger("logs/training.log")
 
 
 def distillation_kl(mu_s, logvar_s, mu_t, logvar_t, temperature):
-    logvar_t_soft = logvar_t + 2 * torch.log(torch.tensor(temperature, device=mu_t.device))
+    logvar_t_soft = logvar_t + 2 * torch.log(
+        torch.tensor(temperature, device=mu_t.device)
+    )
     var_s = logvar_s.exp()
     var_t_soft = logvar_t_soft.exp()
     return 0.5 * torch.mean(
@@ -132,6 +134,7 @@ def train():
         num_layers=cfg["distillation"]["num_layers"],
         num_cameras=t["num_cameras"],
         teacher_latent_dim=cfg["distillation"]["teacher_latent_dim"],
+        distil_act=True,
     )
     distil_act = distil_act.to(device)
 

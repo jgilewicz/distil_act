@@ -65,13 +65,14 @@ class ACT(nn.Module):
         num_layers: int = 4,
         num_cameras: int = 2,
         teacher_latent_dim: int | None = None,
+        distil_act: bool = False,
     ):
         super().__init__()
         self.embed_dim = embed_dim
         self.latent_dim = latent_dim
 
         self.image_embedding = ImageEmbedding(
-            embed_dim=embed_dim, num_cameras=num_cameras
+            embed_dim=embed_dim, num_cameras=num_cameras, distil=distil_act
         )
         self.joints_projection = nn.Linear(joint_dim, embed_dim)
 

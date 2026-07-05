@@ -21,16 +21,21 @@ class ImageEmbedding(nn.Module):
             )
         )
         self.backbone = model.features
-
         for param in self.backbone.parameters():
             param.requires_grad = False
 
+        feature_channels = self._get_feature_channels()
         self.pool = nn.AdaptiveAvgPool2d((num_patches_side, num_patches_side))
-        self.projection = nn.Linear(1536, embed_dim)
-
+        self.projection = nn.Linear(feature_channels, embed_dim)
         num_patches = num_patches_side**2
         self.pos_embedding = nn.Parameter(torch.randn(1, num_patches, embed_dim))
         self.camera_embedding = nn.Embedding(num_cameras, embed_dim)
+
+    def _get_feature_channels(self) -> int:
+        dummy = torch.zeros(1, 3, 224, 224)
+        with torch.no_grad():
+            out = self.backbone(dummy)
+        return out.shape[1]
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         B, N, C, H, W = images.shape
