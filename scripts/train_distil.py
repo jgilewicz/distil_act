@@ -101,7 +101,9 @@ def train():
 
     t = cfg["training"]
     ensure_checkpoint(cfg["eval"]["checkpoint"], t["hf_repo_id"], t["hf_filename"])
-    checkpoint = torch.load(cfg["eval"]["checkpoint"], map_location=device, weights_only=True)
+    checkpoint = torch.load(
+        cfg["eval"]["checkpoint"], map_location=device, weights_only=True
+    )
 
     act = ACT(
         action_dim=t["action_dim"],
