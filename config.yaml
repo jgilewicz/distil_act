@@ -23,7 +23,7 @@ collection:
   render_cameras:
     - "overhead_cam"
     - "ego_cam"
-  hf_repo_id: "jgilewicz/distil_act_reach_env"
+  hf_repo_id: "jgilewicz/act_reach_env"
 
 training:
   action_dim: 6
@@ -43,8 +43,6 @@ training:
   log_interval: 1000
   save_interval: 10000
   lr: 0.00015
-  hf_repo_id: "jgilewicz/distil_act_teacher"
-  hf_filename: "act_model_final.pt"
 
 distillation:
   embed_dim: 128
@@ -55,12 +53,20 @@ distillation:
   alpha: 0.5
   gamma: 0.2
   teacher_latent_dim: 128
+  teacher_hf_repo_id: "jgilewicz/distil_act_teacher"
+  teacher_hf_filename: "act_model_final.pt"
+  teacher_checkpoint: "artifacts/act_model_final.pt" 
 
 eval:
-  checkpoint: "artifacts/act_model_final.pt"
+  checkpoint: "artifacts/distil_act_model_step_10000.pt"
   seed: 1
   video_path: "video/eval.mp4"
 
 wandb:
   project: "distil_act"
   entity: "jg_projects"
+
+hf:
+  hf_repo_id: "jgilewicz/distil_act_student"
+  hf_filename: "distil_act_model_step_10000.pt"
+  checkpoint: "artifacts/distil_act_model_step_10000.pt"

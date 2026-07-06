@@ -4,6 +4,7 @@
 # generated data & logs
 data/
 logs/
+video/
 
 # python
 __pycache__/
@@ -29,6 +30,8 @@ artifacts/
 # OS
 
 .DS_Store
+.DS_Store/
+
 
 # wandb
 .wandb/

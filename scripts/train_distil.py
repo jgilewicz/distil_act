@@ -104,8 +104,8 @@ def train():
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    t = cfg["training"]
-    ensure_checkpoint(cfg["eval"]["checkpoint"], t["hf_repo_id"], t["hf_filename"])
+    t = cfg["distillation"]
+    ensure_checkpoint(t["teacher_checkpoint"], t["teacher_hf_repo_id"], t["teacher_hf_filename"])
     checkpoint = torch.load(
         cfg["eval"]["checkpoint"], map_location=device, weights_only=True
     )

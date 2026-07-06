@@ -9,6 +9,7 @@ from env.env import ReachEnvironment
 from renderer.renderer import SceneRenderer
 from utils.config import load_config
 from utils.logger import Logger
+from utils.hub import ensure_checkpoint
 
 logger = Logger("logs/eval.log")
 
@@ -42,7 +43,9 @@ def eval():
     else:
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
-
+    
+    ensure_checkpoint(cfg["hf"]["checkpoint"], cfg["hf"]["hf_repo_id"], cfg["hf"]["hf_filename"])
+    
     checkpoint = torch.load(
         cfg["eval"]["checkpoint"], map_location=device, weights_only=True
     )
@@ -59,6 +62,8 @@ def eval():
         nhead=t["nhead"],
         num_layers=t["num_layers"],
         num_cameras=t["num_cameras"],
+        distil_act=True,
+        
     )
     act.load_state_dict(checkpoint["model"])
     act = act.to(device)

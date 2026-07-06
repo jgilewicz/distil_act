@@ -40,7 +40,7 @@ distill:
 
 # evaluate the trained ACT policy with viewer (macOS requires mjpython)
 eval:
-    uv run mjpython scripts/eval_act.py
+    uv run  scripts/eval_act.py
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
 push-data:
