@@ -1,0 +1,20 @@
+# Policy evaluation (scripts/eval_act.py for the teacher, scripts/eval_distil.py for the student).
+
+eval:
+  teacher:
+    checkpoint: "artifacts/act_model_final.pt"
+    repo_id: "jgilewicz/distil_act_teacher"
+    filename: "act_model_final.pt"
+    auto_pull: true  # download the checkpoint from the Hub if missing
+    seed: 1
+    video_path: "artifacts/eval_teacher.mp4"
+    log_file: "logs/eval_teacher.log"
+
+  student:
+    checkpoint: "artifacts/distil_act_model_final.pt"
+    repo_id: "jgilewicz/distil_act_student"
+    filename: "distil_act_model_final.pt"
+    auto_pull: true
+    seed: 1
+    video_path: "artifacts/eval_student.mp4"
+    log_file: "logs/eval_student.log"

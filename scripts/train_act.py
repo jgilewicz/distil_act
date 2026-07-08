@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 from algorithms.act_policy import ACT
 from dataset.dataloader import make_dataloader
 from utils.config import load_config
+from utils.hub import push_checkpoint
 from utils.logger import Logger
 
 load_dotenv()
-logger = Logger("logs/training.log")
 
 
 def training_step(
@@ -21,6 +21,7 @@ def training_step(
     step: int,
     log_interval: int,
     device: torch.device,
+    logger: Logger,
 ):
     images = batch["images"].float().to(device)
     qpos = batch["qpos"].float().to(device)
@@ -52,16 +53,11 @@ def training_step(
 
 
 def train():
-    cfg = load_config("config.yaml")
+    cfg = load_config()
+    t = cfg["training"]
+    logger = Logger(t["log_file"])
 
-    wandb.init(
-        project=cfg["wandb"]["project"],
-        entity=cfg["wandb"]["entity"],
-        config={
-            **cfg["training"],
-            "wandb": cfg["wandb"],
-        },
-    )
+    wandb.init(project=t["wandb"]["project"], entity=t["wandb"]["entity"], config=t)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -71,7 +67,6 @@ def train():
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    t = cfg["training"]
     act = ACT(
         action_dim=t["action_dim"],
         embed_dim=t["embed_dim"],
@@ -84,12 +79,13 @@ def train():
     )
     act = act.to(device)
 
-    beta = cfg["training"]["beta"]
-    max_steps = cfg["training"]["max_steps"]
-    lr = cfg["training"]["lr"]
-    warmup_steps = cfg["training"]["warmup_steps"]
-    log_interval = cfg["training"]["log_interval"]
-    save_interval = cfg["training"]["save_interval"]
+    beta = t["beta"]
+    max_steps = t["max_steps"]
+    lr = t["lr"]
+    warmup_steps = t["warmup_steps"]
+    log_interval = t["log_interval"]
+    save_interval = t["save_interval"]
+    checkpoint_dir = t["checkpoint_dir"]
 
     train_loader = make_dataloader(cfg)
 
@@ -105,7 +101,7 @@ def train():
         optim, schedulers=[warmup, cosine], milestones=[warmup_steps]
     )
 
-    os.makedirs("artifacts", exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
     step = 0
     while step < max_steps:
@@ -114,17 +110,20 @@ def train():
             if step > max_steps:
                 break
 
-            training_step(act, optim, batch, beta, step, log_interval, device)
+            training_step(act, optim, batch, beta, step, log_interval, device, logger)
             scheduler.step()
             wandb.log({"lr": scheduler.get_last_lr()[0], "step": step})
 
             if step % save_interval == 0:
                 try:
-                    torch.save(act.state_dict(), f"artifacts/act_model_step_{step}.pt")
+                    torch.save(
+                        act.state_dict(), f"{checkpoint_dir}/act_model_step_{step}.pt"
+                    )
                     logger.info(f"Saved model at step {step}")
                 except RuntimeError as e:
                     logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
+    final_path = f"{checkpoint_dir}/act_model_final.pt"
     try:
         torch.save(
             {
@@ -132,18 +131,21 @@ def train():
                 "norm_mean": train_loader.dataset.mean,
                 "norm_std": train_loader.dataset.std,
             },
-            "artifacts/act_model_final.pt",
+            final_path,
         )
     except RuntimeError as e:
         logger.warning(f"Final model save failed: {e}")
 
     artifact = wandb.Artifact("act_model", type="model")
-    artifact.add_file("artifacts/act_model_final.pt")
+    artifact.add_file(final_path)
     wandb.log_artifact(artifact)
 
     wandb.finish()
 
     logger.info("Training completed and final model saved.")
+
+    if t["hub"]["auto_push"]:
+        push_checkpoint(final_path, t["hub"]["repo_id"], t["hub"]["filename"], logger)
 
 
 if __name__ == "__main__":

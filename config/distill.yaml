@@ -1,0 +1,29 @@
+# Student distillation from the teacher ACT (scripts/train_distil.py).
+
+distillation:
+  embed_dim: 128
+  latent_dim: 64
+  num_layers: 2
+  nhead: 4
+  num_cameras: 2
+  temperature: 2.0
+  alpha: 0.5
+  gamma: 0.2
+
+  log_file: "logs/distillation.log"
+  checkpoint_dir: "artifacts"
+
+  teacher:
+    checkpoint: "artifacts/act_model_final.pt"
+    repo_id: "jgilewicz/distil_act_teacher"
+    filename: "act_model_final.pt"
+    auto_pull: true  # download the teacher checkpoint from the Hub if missing
+
+  wandb:
+    project: "distil_act"
+    entity: "jg_projects"
+
+  hub:
+    repo_id: "jgilewicz/distil_act_student"
+    filename: "distil_act_model_final.pt"
+    auto_push: false  # upload the final student checkpoint to the Hub once distillation finishes

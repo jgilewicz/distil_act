@@ -7,11 +7,10 @@ from dotenv import load_dotenv
 from algorithms.act_policy import ACT
 from dataset.dataloader import make_dataloader
 from utils.config import load_config
-from utils.hub import ensure_checkpoint
+from utils.hub import ensure_checkpoint, push_checkpoint
 from utils.logger import Logger
 
 load_dotenv()
-logger = Logger("logs/training.log")
 
 
 def distillation_kl(mu_s, logvar_s, mu_t, logvar_t, temperature):
@@ -37,6 +36,7 @@ def training_step(
     step: int,
     log_interval: int,
     device: torch.device,
+    logger: Logger,
 ):
     images = batch["images"].float().to(device)
     qpos = batch["qpos"].float().to(device)
@@ -70,7 +70,9 @@ def training_step(
 
     if step % log_interval == 0:
         logger.info(
-            f"Step: {step}, Hard: {hard_loss.item()}, Soft: {soft_loss.item()}, KL: {prior_kl.item()}, Total: {total_loss.item()}"
+            f"Step: {step}, Hard: {hard_loss.item()}, Soft: {soft_loss.item()}, KL: {
+                prior_kl.item()
+            }, Total: {total_loss.item()}"
         )
         wandb.log(
             {
@@ -85,16 +87,12 @@ def training_step(
 
 
 def train():
-    cfg = load_config("config.yaml")
+    cfg = load_config()
+    d = cfg["distillation"]
+    t = cfg["training"]
+    logger = Logger(d["log_file"])
 
-    wandb.init(
-        project=cfg["wandb"]["project"],
-        entity=cfg["wandb"]["entity"],
-        config={
-            **cfg["training"],
-            "wandb": cfg["wandb"],
-        },
-    )
+    wandb.init(project=d["wandb"]["project"], entity=d["wandb"]["entity"], config=d)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -104,10 +102,13 @@ def train():
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    t = cfg["distillation"]
-    ensure_checkpoint(t["teacher_checkpoint"], t["teacher_hf_repo_id"], t["teacher_hf_filename"])
+    teacher_cfg = d["teacher"]
+    if teacher_cfg["auto_pull"]:
+        ensure_checkpoint(
+            teacher_cfg["checkpoint"], teacher_cfg["repo_id"], teacher_cfg["filename"]
+        )
     checkpoint = torch.load(
-        cfg["eval"]["checkpoint"], map_location=device, weights_only=True
+        teacher_cfg["checkpoint"], map_location=device, weights_only=True
     )
 
     act = ACT(
@@ -126,27 +127,28 @@ def train():
 
     distil_act = ACT(
         action_dim=t["action_dim"],
-        embed_dim=cfg["distillation"]["embed_dim"],
-        latent_dim=cfg["distillation"]["latent_dim"],
+        embed_dim=d["embed_dim"],
+        latent_dim=d["latent_dim"],
         joint_dim=t["joint_dim"],
         action_query_len=t["chunk_size"],
-        nhead=cfg["distillation"]["nhead"],
-        num_layers=cfg["distillation"]["num_layers"],
-        num_cameras=t["num_cameras"],
-        teacher_latent_dim=cfg["distillation"]["teacher_latent_dim"],
+        nhead=d["nhead"],
+        num_layers=d["num_layers"],
+        num_cameras=d["num_cameras"],
+        teacher_latent_dim=t["latent_dim"],
         distil_act=True,
     )
     distil_act = distil_act.to(device)
 
-    beta = cfg["training"]["beta"]
-    alpha = cfg["distillation"]["alpha"]
-    gamma = cfg["distillation"]["gamma"]
-    temperature = cfg["distillation"]["temperature"]
-    max_steps = cfg["training"]["max_steps"]
-    lr = cfg["training"]["lr"]
-    warmup_steps = cfg["training"]["warmup_steps"]
-    log_interval = cfg["training"]["log_interval"]
-    save_interval = cfg["training"]["save_interval"]
+    beta = t["beta"]
+    alpha = d["alpha"]
+    gamma = d["gamma"]
+    temperature = d["temperature"]
+    max_steps = t["max_steps"]
+    lr = t["lr"]
+    warmup_steps = t["warmup_steps"]
+    log_interval = t["log_interval"]
+    save_interval = t["save_interval"]
+    checkpoint_dir = d["checkpoint_dir"]
 
     train_loader = make_dataloader(cfg)
 
@@ -162,7 +164,7 @@ def train():
         optim, schedulers=[warmup, cosine], milestones=[warmup_steps]
     )
 
-    os.makedirs("artifacts", exist_ok=True)
+    os.makedirs(checkpoint_dir, exist_ok=True)
 
     step = 0
 
@@ -184,6 +186,7 @@ def train():
                 step,
                 log_interval,
                 device,
+                logger,
             )
             scheduler.step()
             if step % log_interval == 0:
@@ -193,12 +196,13 @@ def train():
                 try:
                     torch.save(
                         distil_act.state_dict(),
-                        f"artifacts/distil_act_model_step_{step}.pt",
+                        f"{checkpoint_dir}/distil_act_model_step_{step}.pt",
                     )
                     logger.info(f"Saved model at step {step}")
                 except RuntimeError as e:
                     logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
+    final_path = f"{checkpoint_dir}/distil_act_model_final.pt"
     try:
         torch.save(
             {
@@ -206,18 +210,21 @@ def train():
                 "norm_mean": train_loader.dataset.mean,
                 "norm_std": train_loader.dataset.std,
             },
-            "artifacts/distil_act_model_final.pt",
+            final_path,
         )
     except RuntimeError as e:
         logger.warning(f"Final model save failed: {e}")
 
     artifact = wandb.Artifact("distil_act_model", type="model")
-    artifact.add_file("artifacts/distil_act_model_final.pt")
+    artifact.add_file(final_path)
     wandb.log_artifact(artifact)
 
     wandb.finish()
 
     logger.info("Training completed and final model saved.")
+
+    if d["hub"]["auto_push"]:
+        push_checkpoint(final_path, d["hub"]["repo_id"], d["hub"]["filename"], logger)
 
 
 if __name__ == "__main__":

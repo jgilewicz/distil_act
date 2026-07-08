@@ -9,9 +9,9 @@ from renderer.renderer import SceneRenderer
 from dataset.dataset_manager import DatasetManager
 from utils.logger import Logger
 from utils.config import load_config
+from utils.hub import push_dataset
 
 SHOW_VIEWER = os.environ.get("SHOW_VIEWER", "true").lower() != "false"
-CONFIG_PATH = "config.yaml"
 
 
 def collect_episode(
@@ -57,7 +57,7 @@ def collect_episode(
 
 
 def main() -> None:
-    cfg = load_config(CONFIG_PATH)
+    cfg = load_config()
     col = cfg["collection"]
 
     log = Logger(col["log_file"])
@@ -126,6 +126,9 @@ def main() -> None:
     )
     log.info(f"Mean final distance: {np.mean(distances):.4f} m")
     log.info(f"Dataset saved to: {os.path.abspath(col['dataset_dir'])}")
+
+    if col["hub"]["auto_push"]:
+        push_dataset(col["dataset_dir"], col["hub"]["repo_id"], log)
 
 
 if __name__ == "__main__":

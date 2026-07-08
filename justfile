@@ -38,14 +38,22 @@ train:
 distill:
     uv run python3 scripts/train_distil.py
 
-# evaluate the trained ACT policy with viewer (macOS requires mjpython)
+# evaluate the trained teacher ACT policy with viewer (macOS requires mjpython)
 eval:
-    uv run  scripts/eval_act.py
+    uv run python3 scripts/eval_act.py
+
+# evaluate the distilled student policy with viewer (macOS requires mjpython)
+eval-distill:
+    uv run python3 scripts/eval_distil.py
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
 push-data:
     uv run python3 scripts/push_data_to_hub.py
 
 # push trained teacher checkpoint to Hugging Face Hub (requires huggingface-cli login)
-push-model:
-    uv run python3 scripts/push_model_to_hub.py
+push-teacher:
+    uv run python3 scripts/push_teacher_to_hub.py
+
+# push distilled student checkpoint to Hugging Face Hub (requires huggingface-cli login)
+push-student:
+    uv run python3 scripts/push_student_to_hub.py

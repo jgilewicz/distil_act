@@ -1,0 +1,32 @@
+# Teacher ACT training (scripts/train_act.py).
+
+training:
+  action_dim: 6
+  embed_dim: 256
+  latent_dim: 128
+  joint_dim: 6
+  nhead: 8
+  num_layers: 4
+  num_cameras: 2
+  beta: 0.05
+  chunk_size: 50
+  batch_size: 64
+  val_ratio: 0.1
+  num_workers: 8
+  max_steps: 50000
+  warmup_steps: 1000
+  log_interval: 1000
+  save_interval: 10000
+  lr: 0.00015
+
+  log_file: "logs/training.log"
+  checkpoint_dir: "artifacts"
+
+  wandb:
+    project: "distil_act"
+    entity: "jg_projects"
+
+  hub:
+    repo_id: "jgilewicz/distil_act_teacher"
+    filename: "act_model_final.pt"
+    auto_push: false  # upload the final checkpoint to the Hub once training finishes

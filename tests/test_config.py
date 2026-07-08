@@ -5,6 +5,6 @@ REPO_ROOT = Path(__file__).parent.parent
 
 
 def test_config_loads():
-    cfg = load_config(str(REPO_ROOT / "config.yaml"))
-    for key in ("env", "expert", "renderer", "collection", "training"):
+    cfg = load_config(str(REPO_ROOT / "config"))
+    for key in ("env", "expert", "renderer", "collection", "training", "distillation", "eval"):
         assert key in cfg

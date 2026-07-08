@@ -7,7 +7,7 @@ REPO_ROOT = Path(__file__).parent.parent
 
 @pytest.fixture(scope="session")
 def config():
-    cfg = load_config(str(REPO_ROOT / "config.yaml"))
+    cfg = load_config(str(REPO_ROOT / "config"))
     cfg["env"]["scene_xml_path"] = str(REPO_ROOT / cfg["env"]["scene_xml_path"])
     return cfg
 

@@ -1,0 +1,15 @@
+# Expert demonstration collection (scripts/collect_data.py).
+
+collection:
+  n_episodes: 200
+  n_steps: 1000
+  dataset_dir: "data/reach"
+  log_file: "logs/data_gathering.log"
+  render_cameras:
+    - "overhead_cam"
+    - "ego_cam"
+
+  hub:
+    repo_id: "jgilewicz/act_reach_env"
+    auto_pull: true   # download from the Hub if dataset_dir is missing
+    auto_push: false  # upload to the Hub once collection finishes

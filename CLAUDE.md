@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
 
-Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment.
+Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses).
 
 ## Commands
 
@@ -15,8 +15,13 @@ uv sync                  # install / sync dependencies
 just                     # list all available tasks
 just collect             # collect demos with viewer (macOS: uses mjpython)
 just collect-headless    # collect headless
-just train               # train ACT policy
-just eval                # run trained policy with viewer (macOS: uses mjpython)
+just train               # train teacher ACT policy
+just distill             # distill the teacher into a smaller student
+just eval                # run the trained teacher with viewer (macOS: uses mjpython)
+just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
+just push-data           # push collected dataset to the Hub
+just push-teacher        # push teacher checkpoint to the Hub
+just push-student        # push student checkpoint to the Hub
 just test                # run test suite (pytest)
 just lint                # ruff check
 just fix                 # ruff check --fix + ruff format
@@ -24,7 +29,9 @@ just fix                 # ruff check --fix + ruff format
 
 On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`.
 
-All configuration lives in `config.yaml` at the project root. No hardcoded constants in source files.
+All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`) — split into separate files (`simulation.yaml`, `collection.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`) purely for navigability, not namespacing. No hardcoded constants in source files.
+
+Each stage's Hub interaction (dataset/checkpoint download and upload) is config-driven, not a separate manual step: every stage config carries a `hub` block with `repo_id`/`filename` plus `auto_pull` (download if the local file/dir is missing — via `src/utils/hub.py`) and `auto_push` (upload once the stage finishes). The dedicated `push-*` scripts/just recipes remain for pushing on demand (e.g. re-pushing without retraining).
 
 ## CI
 
@@ -41,11 +48,15 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
                                                                    EpisodeDataset
                                                                   (PyTorch loader)
                                                                           ↓
-                                                                     ACT training
+                                                                  ACT teacher training
                                                                           ↓
-                                                               act_model_final.pt
-                                                                          ↓
-                                                          eval_act.py + ChunkingBuffer
+                                                               act_model_final.pt ──────────────┐
+                                                                          ↓                      ↓
+                                                          eval_act.py + ChunkingBuffer   ACT student distillation
+                                                                                                  ↓
+                                                                                    distil_act_model_final.pt
+                                                                                                  ↓
+                                                                              eval_distil.py + ChunkingBuffer
 ```
 
 ### Key files
@@ -77,14 +88,19 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
 - `act_policy.py` — `ACT`: full encoder-decoder Transformer. Training: takes `(images, qpos, actions)`, runs CVAE encoder for latent z, returns `(pred_actions, mu, logvar)`. Inference: z=0, returns `pred_actions` only.
 - `chunking_buffer.py` — `ChunkingBuffer`: stores overlapping action chunk predictions; `get_action(t)` returns exponentially weighted average over all chunks that cover timestep t; evicts chunks older than `chunk_size` steps.
 
-**`scripts/eval_act.py`**
-- Loads `artifacts/act_model_final.pt` (model weights + `norm_mean` + `norm_std`).
+**`scripts/train_distil.py`**
+- Loads the frozen teacher (`training` dims) and trains a smaller student `ACT` (`distillation` dims, `distil_act=True` → MobileNetV3-Large backbone instead of EfficientNet-B3).
+- Loss = `alpha * hard_loss + (1-alpha) * soft_loss + beta * prior_kl + gamma * distill_kl`; `distill_kl` matches the student's latent (projected to `teacher_latent_dim`) against the teacher's CVAE posterior at `temperature`.
+
+**`scripts/eval_act.py`** / **`scripts/eval_distil.py`**
+- Load `eval.teacher.checkpoint` / `eval.student.checkpoint` respectively (model weights + `norm_mean` + `norm_std`). The student script builds its `ACT` with `distillation` dims and `distil_act=True` — these must match the architecture the checkpoint was trained with.
 - Queries ACT every `chunk_size // 5` physics steps; `ChunkingBuffer` provides temporally ensembled actions for intermediate steps.
-- Renders passive viewer via `SceneRenderer`; writes `artifacts/eval.mp4` from the overhead camera.
+- Renders passive viewer via `SceneRenderer`; writes the configured `video_path` from the overhead camera.
 
 **`src/utils/`**
 - `logger.py` — `Logger(filename)`: logs `[INFO]`/`[WARNING]`/`[ERROR]` to stdout and file simultaneously.
-- `config.py` — `load_config(path)`: loads `config.yaml` via PyYAML, returns dict.
+- `config.py` — `load_config(config_dir="config")`: merges every `*.yaml` in the directory into one dict; raises on duplicate top-level keys.
+- `hub.py` — `ensure_checkpoint`/`ensure_dataset` (download if missing) and `push_checkpoint`/`push_dataset` (upload), shared by the training scripts' auto-pull/auto-push hooks and the manual `push_*_to_hub.py` scripts.
 
 ### Style rules
 - No `sys.path` manipulation — packages are installed via `uv sync` (hatchling src layout).

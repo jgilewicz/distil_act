@@ -3,24 +3,21 @@ from pathlib import Path
 
 import h5py
 import torch
-from huggingface_hub import snapshot_download
 from torch.utils.data import DataLoader, Dataset
 import numpy as np
 
-
-def _ensure_data(dataset_dir: str, repo_id: str) -> None:
-    if not Path(dataset_dir).exists():
-        snapshot_download(repo_id=repo_id, repo_type="dataset", local_dir=dataset_dir)
+from utils.hub import ensure_dataset
 
 
 class EpisodeDataset(Dataset):
     def __init__(self, cfg: dict, split: str = "train") -> None:
-        dataset_dir = cfg["collection"]["dataset_dir"]
-        repo_id = cfg["collection"]["hf_repo_id"]
+        col = cfg["collection"]
+        dataset_dir = col["dataset_dir"]
         chunk_size = cfg["training"]["chunk_size"]
         val_ratio = cfg["training"]["val_ratio"]
 
-        _ensure_data(dataset_dir, repo_id)
+        if col["hub"]["auto_pull"]:
+            ensure_dataset(dataset_dir, col["hub"]["repo_id"])
 
         episodes = sorted(
             Path(dataset_dir).glob("episodes/episode_*.h5"),

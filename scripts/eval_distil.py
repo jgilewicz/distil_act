@@ -33,7 +33,7 @@ def _frames_to_tensor(
 
 def eval():
     cfg = load_config()
-    ev = cfg["eval"]["teacher"]
+    ev = cfg["eval"]["student"]
     logger = Logger(ev["log_file"])
 
     if torch.cuda.is_available():
@@ -52,15 +52,18 @@ def eval():
     norm_std = checkpoint["norm_std"].to(device)
 
     t = cfg["training"]
+    d = cfg["distillation"]
     act = ACT(
         action_dim=t["action_dim"],
-        embed_dim=t["embed_dim"],
-        latent_dim=t["latent_dim"],
+        embed_dim=d["embed_dim"],
+        latent_dim=d["latent_dim"],
         joint_dim=t["joint_dim"],
         action_query_len=t["chunk_size"],
-        nhead=t["nhead"],
-        num_layers=t["num_layers"],
-        num_cameras=t["num_cameras"],
+        nhead=d["nhead"],
+        num_layers=d["num_layers"],
+        num_cameras=d["num_cameras"],
+        teacher_latent_dim=t["latent_dim"],
+        distil_act=True,
     )
     act.load_state_dict(checkpoint["model"])
     act = act.to(device)
