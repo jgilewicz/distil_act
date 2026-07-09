@@ -17,7 +17,7 @@ distillation:
     checkpoint: "artifacts/act_model_final.pt"
     repo_id: "jgilewicz/distil_act_teacher"
     filename: "act_model_final.pt"
-    auto_pull: true  # download the teacher checkpoint from the Hub if missing
+    auto_pull: true  
 
   wandb:
     project: "distil_act"
@@ -26,4 +26,4 @@ distillation:
   hub:
     repo_id: "jgilewicz/distil_act_student"
     filename: "distil_act_model_final.pt"
-    auto_push: false  # upload the final student checkpoint to the Hub once distillation finishes
+    auto_push: false

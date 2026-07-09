@@ -20,7 +20,9 @@ def ensure_dataset(dataset_dir: str, repo_id: str) -> None:
         snapshot_download(repo_id=repo_id, repo_type="dataset", local_dir=dataset_dir)
 
 
-def push_checkpoint(local_path: str, repo_id: str, filename: str, logger: Logger) -> None:
+def push_checkpoint(
+    local_path: str, repo_id: str, filename: str, logger: Logger
+) -> None:
     api = HfApi()
     api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
     logger.info(f"Pushing {local_path} -> {repo_id}/{filename}")

@@ -10,6 +10,6 @@ collection:
     - "ego_cam"
 
   hub:
-    repo_id: "jgilewicz/act_reach_env"
-    auto_pull: true   # download from the Hub if dataset_dir is missing
-    auto_push: false  # upload to the Hub once collection finishes
+    repo_id: "jgilewicz/distil_act_reach_env"
+    auto_pull: true   
+    auto_push: false 

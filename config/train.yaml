@@ -29,4 +29,4 @@ training:
   hub:
     repo_id: "jgilewicz/distil_act_teacher"
     filename: "act_model_final.pt"
-    auto_push: false  # upload the final checkpoint to the Hub once training finishes
+    auto_push: false  

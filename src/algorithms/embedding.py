@@ -42,11 +42,12 @@ class ImageEmbedding(nn.Module):
 
         images = images.view(B * N, C, H, W)
         features = self.backbone(images)
-        # AdaptiveAvgPool2d with non-divisible sizes is not implemented on MPS
+
         if features.device.type == "mps":
             features = self.pool(features.cpu()).to(features.device)
         else:
             features = self.pool(features)
+
         features = features.flatten(2).permute(0, 2, 1)
         features = self.projection(features)
 
