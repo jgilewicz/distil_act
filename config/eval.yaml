@@ -18,3 +18,8 @@ eval:
     seed: 1
     video_path: "artifacts/eval_student.mp4"
     log_file: "logs/eval_student.log"
+
+  measure:
+    n_episodes: 50
+    log_file: "logs/distillation_measure.log"
+    output_path: "artifacts/distillation_metrics.json"

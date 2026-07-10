@@ -195,7 +195,11 @@ def train():
             if step % save_interval == 0:
                 try:
                     torch.save(
-                        distil_act.state_dict(),
+                        {
+                            "model": distil_act.state_dict(),
+                            "norm_mean": train_loader.dataset.mean,
+                            "norm_std": train_loader.dataset.std,
+                        },
                         f"{checkpoint_dir}/distil_act_model_step_{step}.pt",
                     )
                     logger.info(f"Saved model at step {step}")

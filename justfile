@@ -57,3 +57,7 @@ push-teacher:
 # push distilled student checkpoint to Hugging Face Hub (requires huggingface-cli login)
 push-student:
     uv run python3 scripts/push_student_to_hub.py
+
+# compare teacher vs student over 50 episodes each: convergence, success rate, size, VRAM/RAM, inference speed
+measure:
+    uv run python3 scripts/distillation_measure.py
