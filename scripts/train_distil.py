@@ -219,16 +219,19 @@ def train():
     except RuntimeError as e:
         logger.warning(f"Final model save failed: {e}")
 
-    artifact = wandb.Artifact("distil_act_model", type="model")
-    artifact.add_file(final_path)
-    wandb.log_artifact(artifact)
+    if os.path.exists(final_path):
+        artifact = wandb.Artifact("distil_act_model", type="model")
+        artifact.add_file(final_path)
+        wandb.log_artifact(artifact)
+        if d["hub"]["auto_push"]:
+            push_checkpoint(
+                final_path, d["hub"]["repo_id"], d["hub"]["filename"], logger
+            )
+    else:
+        logger.warning("Final model not saved — skipping wandb artifact and hub push.")
 
     wandb.finish()
-
-    logger.info("Training completed and final model saved.")
-
-    if d["hub"]["auto_push"]:
-        push_checkpoint(final_path, d["hub"]["repo_id"], d["hub"]["filename"], logger)
+    logger.info("Training completed.")
 
 
 if __name__ == "__main__":

@@ -40,11 +40,11 @@ distill:
 
 # evaluate the trained teacher ACT policy with viewer (macOS requires mjpython)
 eval:
-    uv run python3 scripts/eval_act.py
+    uv run mjpython scripts/eval_act.py
 
 # evaluate the distilled student policy with viewer (macOS requires mjpython)
 eval-distill:
-    uv run python3 scripts/eval_distil.py
+    uv run mjpython scripts/eval_distil.py
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login)
 push-data:
@@ -60,4 +60,4 @@ push-student:
 
 # compare teacher vs student over 50 episodes each: convergence, success rate, size, VRAM/RAM, inference speed
 measure:
-    uv run python3 scripts/distillation_measure.py
+    uv run mjpython scripts/distillation_measure.py

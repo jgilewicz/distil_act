@@ -19,12 +19,14 @@ just train               # train teacher ACT policy
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
+just measure             # compare teacher vs student: success rate, latency, size, VRAM/RAM
 just push-data           # push collected dataset to the Hub
 just push-teacher        # push teacher checkpoint to the Hub
 just push-student        # push student checkpoint to the Hub
 just test                # run test suite (pytest)
 just lint                # ruff check
 just fix                 # ruff check --fix + ruff format
+just clean               # remove generated logs, dataset, and pycache
 ```
 
 On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`.
@@ -61,7 +63,10 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
 
 ### Key files
 
-**`src/env/env.py` — `ReachEnvironment`**
+**`src/env/base.py` — `Environment`**
+- Abstract base class with `reset() -> np.ndarray` and `step(action) -> (obs, terminated)`.
+
+**`src/env/env.py` — `ReachEnvironment(Environment)`**
 - Merges `models/reach_scene.xml` with the `low_cost_robot_arm` MJCF from `robot_descriptions` at runtime; attaches an `ego_cam` to `robot_gripper_static_finger`.
 - All robot bodies/joints/actuators are prefixed `robot_` after merging.
 - `step(action)` returns `(obs, terminated)` — terminated when EE distance < `reach_threshold`.
@@ -87,6 +92,12 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
 - `embedding.py` — `ImageEmbedding`: frozen EfficientNet-B3 backbone + AdaptiveAvgPool → linear projection; adds per-camera and positional embeddings; output shape `(B, K*P, embed_dim)` where P=49 patches. On MPS, the AdaptiveAvgPool runs on CPU (non-divisible sizes unsupported on MPS).
 - `act_policy.py` — `ACT`: full encoder-decoder Transformer. Training: takes `(images, qpos, actions)`, runs CVAE encoder for latent z, returns `(pred_actions, mu, logvar)`. Inference: z=0, returns `pred_actions` only.
 - `chunking_buffer.py` — `ChunkingBuffer`: stores overlapping action chunk predictions; `get_action(t)` returns exponentially weighted average over all chunks that cover timestep t; evicts chunks older than `chunk_size` steps.
+
+**`scripts/distillation_measure.py`**
+- Evaluates both teacher and student over `eval.measure.n_episodes` randomly-seeded episodes.
+- Per-episode: runs the full policy loop headlessly, records inference times, joint trajectories, EE positions, and success.
+- Aggregates: success rate, mean convergence time, mean inference latency, model size, peak VRAM/RAM.
+- Writes `eval.measure.output_path` (JSON) and logs to `eval.measure.log_file`.
 
 **`scripts/train_distil.py`**
 - Loads the frozen teacher (`training` dims) and trains a smaller student `ACT` (`distillation` dims, `distil_act=True` → MobileNetV3-Large backbone instead of EfficientNet-B3).

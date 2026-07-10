@@ -5,7 +5,7 @@ eval:
     checkpoint: "artifacts/act_model_final.pt"
     repo_id: "jgilewicz/distil_act_teacher"
     filename: "act_model_final.pt"
-    auto_pull: true  #
+    auto_pull: true  
     seed: 1
     video_path: "artifacts/eval_teacher.mp4"
     log_file: "logs/eval_teacher.log"

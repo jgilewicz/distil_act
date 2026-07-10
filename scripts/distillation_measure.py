@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 import resource
 import time
 
@@ -53,8 +54,17 @@ def load_model(checkpoint_path, model_kwargs, device):
 
 
 def run_episode(
-    model, norm_mean, norm_std, env_cfg, r_cfg, cameras, chunk_size, action_dim,
-    max_steps, seed, device,
+    model,
+    norm_mean,
+    norm_std,
+    env_cfg,
+    r_cfg,
+    cameras,
+    chunk_size,
+    action_dim,
+    max_steps,
+    seed,
+    device,
 ):
     env = ReachEnvironment(
         scene_xml_path=env_cfg["scene_xml_path"],
@@ -72,7 +82,10 @@ def run_episode(
     terminated = False
 
     with SceneRenderer(
-        env, height=r_cfg["height"], width=r_cfg["width"], camera_list=cameras,
+        env,
+        height=r_cfg["height"],
+        width=r_cfg["width"],
+        camera_list=cameras,
         show_viewer=False,
     ) as renderer:
         obs = env.reset()
@@ -116,8 +129,18 @@ def run_episode(
 
 
 def measure_model(
-    name, checkpoint_path, model_kwargs, chunk_size, action_dim, cfg, device, logger,
+    name,
+    checkpoint_path,
+    model_kwargs,
+    chunk_size,
+    action_dim,
+    cfg,
+    device,
+    logger,
 ):
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
+
     model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
 
     env_cfg = cfg["env"]
@@ -125,9 +148,6 @@ def measure_model(
     cameras = cfg["collection"]["render_cameras"]
     max_steps = cfg["collection"]["n_steps"]
     n_episodes = cfg["eval"]["measure"]["n_episodes"]
-
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
 
     successes = 0
     sim_times = []
@@ -137,8 +157,17 @@ def measure_model(
 
     for seed in range(n_episodes):
         result = run_episode(
-            model, norm_mean, norm_std, env_cfg, r_cfg, cameras, chunk_size,
-            action_dim, max_steps, seed, device,
+            model,
+            norm_mean,
+            norm_std,
+            env_cfg,
+            r_cfg,
+            cameras,
+            chunk_size,
+            action_dim,
+            max_steps,
+            seed,
+            device,
         )
         if result["success"]:
             successes += 1
@@ -158,7 +187,9 @@ def measure_model(
         if device.type == "cuda"
         else None
     )
-    ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    # macOS reports ru_maxrss in bytes; Linux reports it in KiB
+    _rss_divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
+    ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
     size_mb = os.path.getsize(checkpoint_path) / (1024**2)
 
     metrics = {
@@ -222,12 +253,24 @@ def main():
     )
 
     teacher_metrics = measure_model(
-        "teacher", teacher_ev["checkpoint"], teacher_kwargs, t["chunk_size"],
-        t["action_dim"], cfg, device, logger,
+        "teacher",
+        teacher_ev["checkpoint"],
+        teacher_kwargs,
+        t["chunk_size"],
+        t["action_dim"],
+        cfg,
+        device,
+        logger,
     )
     student_metrics = measure_model(
-        "student", student_ev["checkpoint"], student_kwargs, t["chunk_size"],
-        t["action_dim"], cfg, device, logger,
+        "student",
+        student_ev["checkpoint"],
+        student_kwargs,
+        t["chunk_size"],
+        t["action_dim"],
+        cfg,
+        device,
+        logger,
     )
 
     results = {"teacher": teacher_metrics, "student": student_metrics}

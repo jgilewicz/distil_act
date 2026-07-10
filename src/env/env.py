@@ -2,6 +2,8 @@ import mujoco
 from robot_descriptions import low_cost_robot_arm_mj_description
 import numpy as np
 
+from env.base import Environment
+
 
 def build_model(scene_xml_path: str) -> mujoco.MjModel:
     scene_spec = mujoco.MjSpec.from_file(scene_xml_path)
@@ -35,7 +37,7 @@ def sample_target_position(
     return np.array([x, y, z])
 
 
-class ReachEnvironment:
+class ReachEnvironment(Environment):
     def __init__(
         self,
         scene_xml_path: str = "models/reach_scene.xml",

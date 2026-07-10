@@ -1,8 +1,8 @@
 # ACT Distillation
 
-Distillation of the ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
+A research project exploring in-simulation imitation learning and policy distillation. A scripted expert collects demonstrations in MuJoCo, an ACT teacher is trained via behaviour cloning, and a smaller student is distilled from it for edge deployment — all within a single, config-driven pipeline.
 
-**Phase 3** — expert data collected, ACT teacher trained with CVAE + temporal ensembling, distilled into a smaller MobileNetV3-backed student, both evaluated in the MuJoCo reach environment.
+The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation — carries over to any new task without modification. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
 
 ## Stack
 
@@ -79,12 +79,14 @@ just train               # train the ACT teacher (logs to W&B, saves to artifact
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
+just measure             # compare teacher vs student: success rate, latency, size, VRAM/RAM
 just push-data           # push the collected dataset to the Hub
 just push-teacher        # push the teacher checkpoint to the Hub
 just push-student        # push the student checkpoint to the Hub
 just test                # run test suite
 just lint                # ruff check
 just fix                 # ruff check --fix + ruff format
+just clean               # remove generated logs, dataset, and pycache
 ```
 
 ## Training
@@ -117,6 +119,35 @@ just eval-distill     # student
 Each loads its checkpoint (auto-pulled per `eval.teacher`/`eval.student.auto_pull`), runs the policy in the MuJoCo reach environment, renders the passive viewer, and writes a video to `eval.teacher.video_path` / `eval.student.video_path` (overhead camera).
 
 The policy is queried every `chunk_size // 5` physics steps; `ChunkingBuffer` handles temporal ensembling for intermediate steps.
+
+## Measurement
+
+```bash
+just measure
+```
+
+Runs `scripts/distillation_measure.py`: evaluates both teacher and student over `eval.measure.n_episodes` randomly-seeded episodes and writes `artifacts/distillation_metrics.json` with:
+
+- `success_rate` — fraction of episodes where the EE reached the target
+- `mean_convergence_time_s` — average sim time for successful episodes
+- `mean_inference_time_ms` — average forward-pass latency
+- `model_size_mb` — checkpoint size on disk
+- `vram_mb` / `ram_mb` — peak memory usage (VRAM on CUDA, RSS otherwise)
+- `joint_mean` / `joint_std` / `ee_pos_mean` / `ee_pos_std` — trajectory statistics across all episodes
+
+## Results
+
+Evaluated over 50 randomly-seeded episodes on CPU (MPS not applicable for VRAM).
+
+| Metric | Teacher | Student | Δ |
+|---|---|---|---|
+| Success rate | 98% | 86% | −12 pp |
+| Mean convergence time | 0.67 s | 0.79 s | +18% |
+| Inference latency | 72.0 ms | 21.2 ms | **3.4× faster** |
+| Checkpoint size | 107.6 MB | 26.3 MB | **4.1× smaller** |
+| Peak RAM | 916.9 MB | 917.2 MB | — |
+
+The student runs **3.4× faster** and is **4.1× smaller** at the cost of a 12 percentage-point drop in success rate and slightly slower convergence on successful episodes. The RAM footprint is identical — both models fit comfortably in CPU memory, so the size gain matters most for edge deployment where storage and load time are the bottleneck.
 
 ## Headless rendering (no display)
 
@@ -151,22 +182,72 @@ MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collect_data.py
 
 The Docker image ships with `libegl1` + `libgl1` and sets `MUJOCO_GL=disabled` for tests (physics only). Switch it to `egl` for any container that needs to render frames.
 
+## Porting to a new task
+
+The pipeline above the env/expert layer is fully task-agnostic — dataset recording, ACT training, distillation, evaluation, and all utilities need zero changes. Only two files need to be written and two scripts need their imports swapped.
+
+### 1. New environment
+
+Implement the same interface as `ReachEnvironment`:
+
+```python
+# src/env/my_env.py
+from env.base import Environment
+
+class MyEnvironment(Environment):
+    def reset(self) -> np.ndarray:
+        # randomise initial state / target, return obs vector
+        ...
+
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, bool]:
+        # apply action, step physics; bool = task success / termination
+        ...
+```
+
+The obs vector must have `qpos` in its first `joint_dim` elements — the eval scripts index `obs[:joint_dim]` to extract joint positions for normalisation.
+
+### 2. New expert
+
+Extend the `Expert` ABC in `src/expert/base.py`:
+
+```python
+# src/expert/my_expert.py
+from expert.base import Expert
+
+class MyExpert(Expert):
+    def compute_action(self, obs: np.ndarray) -> np.ndarray:
+        # deterministic obs → joint control vector
+        # any method works: IK, analytical solution, motion primitive
+        ...
+```
+
+The expert only needs to produce good-enough demonstrations — it is discarded after data collection.
+
+### 3. Config (`config/simulation.yaml`)
+
+Replace the reach-specific env block with your task's parameters and point `scene_xml_path` at your MuJoCo XML. If your robot has a different DOF, also update `action_dim` and `joint_dim` in `config/train.yaml` and `config/distill.yaml`.
+
+### 4. Swap imports in two scripts
+
+`scripts/collect_data.py` and `scripts/eval_act.py` / `scripts/eval_distil.py` import `ReachEnvironment` and `ReachExpert` directly — replace those with your new classes. Everything else (`train_act.py`, `train_distil.py`, `distillation_measure.py`, all of `src/`) is unchanged.
+
 ## Project structure
 
 ```
 src/
-  env/          # MuJoCo reach environment
-  expert/       # IK-based scripted expert (mink)
-  renderer/     # off-screen rendering + passive viewer
-  dataset/      # HDF5 episode recording + PyTorch dataset/dataloader
-  algorithms/   # ACT policy, ImageEmbedding, ChunkingBuffer
-  utils/        # logger, config loader, Hugging Face Hub helpers
+  env/              # MuJoCo reach environment
+  expert/           # IK-based scripted expert (mink) + abstract base
+  renderer/         # off-screen rendering + passive viewer
+  dataset/          # HDF5 episode recording + PyTorch dataset/dataloader
+  algorithms/       # ACT policy, ImageEmbedding, ChunkingBuffer
+  utils/            # logger, config loader, Hugging Face Hub helpers
 scripts/
-  collect_data.py          # expert demo collection
-  train_act.py             # ACT teacher training loop
-  train_distil.py          # student distillation loop
+  collect_data.py           # expert demo collection
+  train_act.py              # ACT teacher training loop
+  train_distil.py           # student distillation loop
   eval_act.py               # teacher evaluation + video export
   eval_distil.py            # student evaluation + video export
+  distillation_measure.py   # teacher vs student benchmark (success, latency, memory)
   push_data_to_hub.py       # manual dataset push
   push_teacher_to_hub.py    # manual teacher checkpoint push
   push_student_to_hub.py    # manual student checkpoint push
@@ -174,11 +255,11 @@ models/
   reach_scene.xml
 tests/
 config/
-  simulation.yaml
-  collection.yaml
-  train.yaml
-  distill.yaml
-  eval.yaml
+  simulation.yaml   # env, expert, renderer
+  collection.yaml   # data collection
+  train.yaml        # teacher training
+  distill.yaml      # student distillation
+  eval.yaml         # evaluation + measurement
 justfile
 Docker/Dockerfile
 .github/workflows/ci.yml
