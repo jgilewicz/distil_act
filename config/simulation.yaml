@@ -2,10 +2,10 @@
 
 env:
   scene_xml_path: "models/reach_scene.xml"
-  target_x_range: [-0.13, 0.13]
-  target_y_range: [-0.20, 0.20]
+  target_x_range: [0.0, 0.13]
+  target_y_range: [0.08, 0.20]
   target_z_range: [0.10, 0.20]
-  reach_threshold: 0.005
+  reach_threshold: 0.025
 
 expert:
   dt: 0.002

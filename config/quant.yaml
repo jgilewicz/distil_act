@@ -1,0 +1,15 @@
+qat:
+  backend: "fbgemm"       
+  lr: 0.00001              
+  max_steps: 500           
+  alpha: 0.5
+  log_interval: 20
+  output_path: "artifacts/distil_act_model_qat.onnx"
+  log_file: "logs/qat.log"
+
+ptq:
+  calibration_samples: 256
+  fp32_path: "artifacts/distil_act_model.onnx"
+  output_path: "artifacts/distil_act_model_ptq.onnx"
+  dyn_path: "artifacts/distil_act_model_dyn.onnx"
+  log_file: "logs/ptq.log"

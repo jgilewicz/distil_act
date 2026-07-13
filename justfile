@@ -59,5 +59,14 @@ push-student:
     uv run python3 scripts/push_student_to_hub.py
 
 # compare teacher vs student over 50 episodes each: convergence, success rate, size, VRAM/RAM, inference speed
+# headless comparison, so plain python works (no mjpython / viewer needed)
 measure:
-    uv run mjpython scripts/distillation_measure.py
+    uv run python3 scripts/distillation_measure.py
+
+# post-training quantization (ONNX Runtime): static + dynamic int8 of the student
+ptq:
+    uv run python3 scripts/ptq.py
+
+# quantization-aware fine-tune of the student, exported to ONNX
+qat:
+    uv run python3 scripts/qat.py

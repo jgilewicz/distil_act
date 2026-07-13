@@ -6,6 +6,7 @@ import time
 
 import cv2
 import numpy as np
+import onnxruntime as ort
 import torch
 
 from algorithms.act_policy import ACT
@@ -48,6 +49,29 @@ def load_model(checkpoint_path, model_kwargs, device):
     model.load_state_dict(checkpoint["model"])
     model = model.to(device)
     model.eval()
+    norm_mean = checkpoint["norm_mean"].to(device)
+    norm_std = checkpoint["norm_std"].to(device)
+    return model, norm_mean, norm_std
+
+
+class OnnxModel:
+    def __init__(self, onnx_path):
+        self.session = ort.InferenceSession(
+            onnx_path, providers=["CPUExecutionProvider"]
+        )
+
+    def __call__(self, images, joints):
+        feeds = {
+            "images": images.detach().cpu().numpy().astype(np.float32),
+            "joints": joints.detach().cpu().numpy().astype(np.float32),
+        }
+        return torch.from_numpy(self.session.run(None, feeds)[0])
+
+
+def load_quantized_model(onnx_path, norm_checkpoint, device):
+    model = OnnxModel(onnx_path)
+
+    checkpoint = torch.load(norm_checkpoint, map_location=device, weights_only=True)
     norm_mean = checkpoint["norm_mean"].to(device)
     norm_std = checkpoint["norm_std"].to(device)
     return model, norm_mean, norm_std
@@ -137,11 +161,18 @@ def measure_model(
     cfg,
     device,
     logger,
+    quantized=False,
+    norm_checkpoint=None,
 ):
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
 
-    model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
+    if quantized:
+        model, norm_mean, norm_std = load_quantized_model(
+            checkpoint_path, norm_checkpoint, device
+        )
+    else:
+        model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
 
     env_cfg = cfg["env"]
     r_cfg = cfg["renderer"]
@@ -187,7 +218,6 @@ def measure_model(
         if device.type == "cuda"
         else None
     )
-    # macOS reports ru_maxrss in bytes; Linux reports it in KiB
     _rss_divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
     ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
     size_mb = os.path.getsize(checkpoint_path) / (1024**2)
@@ -273,7 +303,31 @@ def main():
         logger,
     )
 
-    results = {"teacher": teacher_metrics, "student": student_metrics}
+    quantized_variants = {
+        "student_ptq": cfg["ptq"]["output_path"],
+        "student_dyn": cfg["ptq"]["dyn_path"],
+        "student_qat": cfg["qat"]["output_path"],
+    }
+    quantized_metrics = {}
+    for name, onnx_path in quantized_variants.items():
+        quantized_metrics[name] = measure_model(
+            name,
+            onnx_path,
+            student_kwargs,
+            t["chunk_size"],
+            t["action_dim"],
+            cfg,
+            torch.device("cpu"),
+            logger,
+            quantized=True,
+            norm_checkpoint=student_ev["checkpoint"],
+        )
+
+    results = {
+        "teacher": teacher_metrics,
+        "student": student_metrics,
+        **quantized_metrics,
+    }
     os.makedirs(os.path.dirname(m["output_path"]), exist_ok=True)
     with open(m["output_path"], "w") as f:
         json.dump(results, f, indent=2)
