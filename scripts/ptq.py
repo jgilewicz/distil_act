@@ -1,3 +1,4 @@
+import onnx
 import torch
 from dotenv import load_dotenv
 from onnxruntime.quantization import (
@@ -88,6 +89,10 @@ def main():
         weight_type=QuantType.QInt8,
     )
     logger.info(f"Saved static-quantized ONNX to {ptq['output_path']}")
+
+    fp32_model = onnx.load(ptq["fp32_path"])
+    del fp32_model.graph.value_info[:]
+    onnx.save(fp32_model, ptq["fp32_path"])
 
     quantize_dynamic(
         ptq["fp32_path"],

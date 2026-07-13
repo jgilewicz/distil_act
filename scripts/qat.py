@@ -131,7 +131,6 @@ def main():
             if step % qat["log_interval"] == 0:
                 logger.info(f"QAT step loss : {loss:.4f}")
 
-    # Move to CPU for a clean ONNX export (example inputs are CPU tensors).
     student = student.to("cpu")
     example_inputs = (
         train_loader.dataset[0]["images"].unsqueeze(0),
