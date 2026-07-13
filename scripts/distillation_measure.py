@@ -306,7 +306,6 @@ def main():
     quantized_variants = {
         "student_ptq": cfg["ptq"]["output_path"],
         "student_dyn": cfg["ptq"]["dyn_path"],
-        "student_qat": cfg["qat"]["output_path"],
     }
     quantized_metrics = {}
     for name, onnx_path in quantized_variants.items():

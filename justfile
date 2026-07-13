@@ -28,7 +28,7 @@ fix:
 
 # remove generated logs, dataset, and pycache
 clean:
-    rm -rf logs/ data/ src/**/__pycache__ scripts/__pycache__
+    rm -rf logs/ data/ src/**/__pycache__ scripts/__pycache__ artifacts/ .ruff_cache/ .pytest_cache/ 
 
 # train the ACT policy
 train:
@@ -66,7 +66,3 @@ measure:
 # post-training quantization (ONNX Runtime): static + dynamic int8 of the student
 ptq:
     uv run python3 scripts/ptq.py
-
-# quantization-aware fine-tune of the student, exported to ONNX
-qat:
-    uv run python3 scripts/qat.py
