@@ -12,6 +12,7 @@ The reach task implemented here is a proof of concept. The env/expert layer is d
 - **Teacher policy** — ACT in PyTorch; EfficientNet-B3 image backbone, CVAE encoder, Transformer encoder-decoder
 - **Student policy** — same ACT architecture, smaller dims + MobileNetV3-Large backbone; trained with a hard action loss, a soft loss against the teacher's predictions, and a latent-space distillation KL
 - **Training** — AdamW + linear warmup + cosine decay; KL-weighted ELBO loss; logged to W&B
+- **Quantization** — ONNX Runtime post-training quantization (static QDQ + dynamic int8) and eager quantization-aware training (QAT), all exported to ONNX
 - **Inference** — `ChunkingBuffer` temporal ensembling over overlapping action chunks
 
 ## The pipeline
@@ -45,7 +46,8 @@ All settings live under `config/`, split into one file per pipeline stage so you
 | `config/collection.yaml` | `collection` | `collect_data.py`, `push_data_to_hub.py` |
 | `config/train.yaml` | `training` | `train_act.py`, `push_teacher_to_hub.py` |
 | `config/distill.yaml` | `distillation` | `train_distil.py`, `push_student_to_hub.py` |
-| `config/eval.yaml` | `eval` | `eval_act.py`, `eval_distil.py` |
+| `config/eval.yaml` | `eval` | `eval_act.py`, `eval_distil.py`, `distillation_measure.py` |
+| `config/quant.yaml` | `qat`, `ptq` | `qat.py`, `ptq.py` |
 
 `load_config()` merges every `*.yaml` in `config/` into a single dict, so scripts just do `cfg["training"]`, `cfg["eval"]["teacher"]`, etc. regardless of which file the section lives in.
 
@@ -79,7 +81,9 @@ just train               # train the ACT teacher (logs to W&B, saves to artifact
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
-just measure             # compare teacher vs student: success rate, latency, size, VRAM/RAM
+just ptq                 # post-training quantization (ONNX): static + dynamic int8 student
+just qat                 # quantization-aware fine-tune of the student, exported to ONNX
+just measure             # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
 just push-data           # push the collected dataset to the Hub
 just push-teacher        # push the teacher checkpoint to the Hub
 just push-student        # push the student checkpoint to the Hub
@@ -109,6 +113,20 @@ just train
 
 Writes `distil_act_model_step_<N>.pt` / `distil_act_model_final.pt` into `distillation.checkpoint_dir`, same layout as the teacher.
 
+## Quantization
+
+Two independent ways to compress the distilled student for edge deployment. Both start from `distil_act_model_final.pt`, export to ONNX, and are benchmarked by `just measure` alongside the fp32 models. Settings live in `config/quant.yaml` (`ptq` + `qat` sections); outputs land in `artifacts/`.
+
+```bash
+just ptq     # post-training quantization (CPU, ONNX Runtime)
+just qat     # quantization-aware fine-tune (CUDA when available)
+```
+
+- **`just ptq`** — exports the student's inference path to fp32 ONNX, then writes two int8 models: **static** QDQ (`distil_act_model_ptq.onnx`, calibrated on the validation split) and **dynamic** weight-only (`distil_act_model_dyn.onnx`, no calibration). No training.
+- **`just qat`** — a short fake-quant fine-tune. Quantization is applied only to the student's `Linear` layers (attention softmax, LayerNorm, and the CVAE branch stay fp32); the loss is a hard action loss plus a soft loss against the teacher. Exports `distil_act_model_qat.onnx`.
+
+The quantized ONNX models carry no normalisation stats — the measurement loads `norm_mean`/`norm_std` from the student checkpoint and runs the ONNX graphs on CPU via ONNX Runtime.
+
 ## Evaluation
 
 ```bash
@@ -126,7 +144,7 @@ The policy is queried every `chunk_size // 5` physics steps; `ChunkingBuffer` ha
 just measure
 ```
 
-Runs `scripts/distillation_measure.py`: evaluates both teacher and student over `eval.measure.n_episodes` randomly-seeded episodes and writes `artifacts/distillation_metrics.json` with:
+Runs `scripts/distillation_measure.py`: evaluates the fp32 teacher and student plus the three quantized variants (`student_ptq`, `student_dyn`, `student_qat`) over `eval.measure.n_episodes` randomly-seeded episodes and writes `artifacts/distillation_metrics.json` with, per model:
 
 - `success_rate` — fraction of episodes where the EE reached the target
 - `mean_convergence_time_s` — average sim time for successful episodes
@@ -148,6 +166,8 @@ Evaluated over 50 randomly-seeded episodes on CPU (MPS not applicable for VRAM).
 | Peak RAM | 916.9 MB | 917.2 MB | — |
 
 The student runs **3.4× faster** and is **4.1× smaller** at the cost of a 12 percentage-point drop in success rate and slightly slower convergence on successful episodes. The RAM footprint is identical — both models fit comfortably in CPU memory, so the size gain matters most for edge deployment where storage and load time are the bottleneck.
+
+The int8 variants (`student_ptq`, `student_dyn`, `student_qat`) are produced by `just ptq` / `just qat` and measured by the same `just measure` run; their numbers are added here once benchmarked on the target x86 machine.
 
 ## Headless rendering (no display)
 
@@ -247,7 +267,9 @@ scripts/
   train_distil.py           # student distillation loop
   eval_act.py               # teacher evaluation + video export
   eval_distil.py            # student evaluation + video export
-  distillation_measure.py   # teacher vs student benchmark (success, latency, memory)
+  ptq.py                    # post-training quantization → static + dynamic int8 ONNX
+  qat.py                    # quantization-aware fine-tune → int8 ONNX
+  distillation_measure.py   # teacher / student / quantized benchmark (success, latency, memory)
   push_data_to_hub.py       # manual dataset push
   push_teacher_to_hub.py    # manual teacher checkpoint push
   push_student_to_hub.py    # manual student checkpoint push
@@ -260,6 +282,7 @@ config/
   train.yaml        # teacher training
   distill.yaml      # student distillation
   eval.yaml         # evaluation + measurement
+  quant.yaml        # quantization (qat + ptq)
 justfile
 Docker/Dockerfile
 .github/workflows/ci.yml

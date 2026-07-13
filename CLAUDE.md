@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
 
-Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses).
+Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses). Phase 4 adds quantization of the distilled student: ONNX Runtime post-training quantization (static QDQ int8 + dynamic weight-only int8) and eager quantization-aware training (QAT). All quantized variants are exported to ONNX and benchmarked against the fp32 teacher/student in `distillation_measure.py`.
 
 ## Commands
 
@@ -19,7 +19,9 @@ just train               # train teacher ACT policy
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
-just measure             # compare teacher vs student: success rate, latency, size, VRAM/RAM
+just ptq                 # post-training quantization (ONNX Runtime): static + dynamic int8 student
+just qat                 # quantization-aware fine-tune of the student, exported to ONNX
+just measure             # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
 just push-data           # push collected dataset to the Hub
 just push-teacher        # push teacher checkpoint to the Hub
 just push-student        # push student checkpoint to the Hub
@@ -29,9 +31,9 @@ just fix                 # ruff check --fix + ruff format
 just clean               # remove generated logs, dataset, and pycache
 ```
 
-On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`.
+On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`. `just measure` is headless (no viewer), so it runs under plain `python3` and works cross-platform.
 
-All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`) — split into separate files (`simulation.yaml`, `collection.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`) purely for navigability, not namespacing. No hardcoded constants in source files.
+All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `qat`, `ptq`) — split into separate files (`simulation.yaml`, `collection.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `qat` and `ptq` sections. No hardcoded constants in source files.
 
 Each stage's Hub interaction (dataset/checkpoint download and upload) is config-driven, not a separate manual step: every stage config carries a `hub` block with `repo_id`/`filename` plus `auto_pull` (download if the local file/dir is missing — via `src/utils/hub.py`) and `auto_push` (upload once the stage finishes). The dedicated `push-*` scripts/just recipes remain for pushing on demand (e.g. re-pushing without retraining).
 
@@ -59,6 +61,16 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
                                                                                     distil_act_model_final.pt
                                                                                                   ↓
                                                                               eval_distil.py + ChunkingBuffer
+```
+
+Quantization branch (Phase 4) — all read `distil_act_model_final.pt`, all write ONNX, all measured through ONNX Runtime:
+
+```
+distil_act_model_final.pt ──> ptq.py  ──> distil_act_model_ptq.onnx  (static QDQ int8)
+                          └──> ptq.py  ──> distil_act_model_dyn.onnx  (dynamic weight-only int8)
+                          └──> qat.py  ──> distil_act_model_qat.onnx  (QAT int8, fine-tuned)
+                                                    ↓
+                                distillation_measure.py (OnnxModel via ONNX Runtime)
 ```
 
 ### Key files
@@ -94,10 +106,19 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
 - `chunking_buffer.py` — `ChunkingBuffer`: stores overlapping action chunk predictions; `get_action(t)` returns exponentially weighted average over all chunks that cover timestep t; evicts chunks older than `chunk_size` steps.
 
 **`scripts/distillation_measure.py`**
-- Evaluates both teacher and student over `eval.measure.n_episodes` randomly-seeded episodes.
+- Evaluates the fp32 teacher and student plus three quantized ONNX variants (`student_ptq`, `student_dyn`, `student_qat`) over `eval.measure.n_episodes` randomly-seeded episodes.
+- fp32 models load via `load_model` (torch) on the selected device; the quantized ONNX variants load via `load_quantized_model` → `OnnxModel` (an `onnxruntime.InferenceSession` wrapper) on CPU, reusing the student checkpoint's `norm_mean`/`norm_std` (the ONNX files carry no norm stats).
 - Per-episode: runs the full policy loop headlessly, records inference times, joint trajectories, EE positions, and success.
 - Aggregates: success rate, mean convergence time, mean inference latency, model size, peak VRAM/RAM.
 - Writes `eval.measure.output_path` (JSON) and logs to `eval.measure.log_file`.
+
+**`scripts/ptq.py`**
+- Post-training quantization of the distilled student via ONNX Runtime, on CPU.
+- Exports the student's inference path (`actions=None`) to fp32 ONNX (`torch.onnx.export(..., dynamo=True)`, input names `images`/`joints`), runs `quant_pre_process(skip_symbolic_shape=True)` (symbolic shape inference chokes on the transformer's `Loop` node), then produces two int8 models: static QDQ via `quantize_static` + an `ActCalibrationReader` over the val split (`ptq.output_path`), and dynamic weight-only via `quantize_dynamic` (`ptq.dyn_path`). Before dynamic quant it strips `graph.value_info` (the dynamo export's stale shapes trip `quantize_dynamic`'s strict shape inference).
+
+**`scripts/qat.py`**
+- Eager quantization-aware fine-tune of the distilled student. `apply_qat_qconfig` sets a `get_default_qat_qconfig(qat.backend)` (fbgemm/x86) only on plain `nn.Linear` (`type(module) is nn.Linear` — excludes MHA's `NonDynamicallyQuantizableLinear`), a weight-only qconfig on `nn.Embedding`, and skips the `encoder_cvae` branch (unused at inference).
+- Trains on CUDA when available with `prepare_qat` + fake-quant, using hard (vs dataset actions) + soft (vs teacher predictions) MSE — no CVAE/KL terms since the inference path returns only `pred_actions`. Backbone BN is frozen (`image_embedding.eval()`). Moves to CPU and exports to ONNX QDQ (`qat.output_path`).
 
 **`scripts/train_distil.py`**
 - Loads the frozen teacher (`training` dims) and trains a smaller student `ACT` (`distillation` dims, `distil_act=True` → MobileNetV3-Large backbone instead of EfficientNet-B3).
