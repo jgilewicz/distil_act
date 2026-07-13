@@ -85,7 +85,7 @@ def main():
         ptq["output_path"],
         reader,
         quant_format=QuantFormat.QDQ,
-        per_channel=False,
+        per_channel=True,
         weight_type=QuantType.QInt8,
     )
     logger.info(f"Saved static-quantized ONNX to {ptq['output_path']}")
