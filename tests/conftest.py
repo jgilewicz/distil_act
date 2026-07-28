@@ -14,7 +14,7 @@ def config():
 
 @pytest.fixture
 def env(config):
-    from env.env import ReachEnvironment
+    from env.reach_env import ReachEnvironment
     return ReachEnvironment(
         scene_xml_path=config["env"]["scene_xml_path"],
         target_x_range=tuple(config["env"]["target_x_range"]),

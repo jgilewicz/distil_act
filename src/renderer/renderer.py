@@ -2,7 +2,7 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import cv2
-from env.env import ReachEnvironment
+from env.reach_env import ReachEnvironment
 
 
 class SceneRenderer:

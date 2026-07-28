@@ -1,6 +1,11 @@
 ptq:
   calibration_samples: 256
-  fp32_path: "artifacts/distil_act_model.onnx"
+  fp32_path: "artifacts/distil_act_model_32.onnx"
+  fp32_preprocessed_path: "artifacts/distil_act_model_32_preprocessed.onnx"
+  fp16_path: "artifacts/distil_act_model_16.onnx"
   output_path: "artifacts/distil_act_model_ptq.onnx"
   dyn_path: "artifacts/distil_act_model_dyn.onnx"
+  engine_fp32_path: "artifacts/distil_act_model_32.engine"
+  engine_fp16_path: "artifacts/distil_act_model_16.engine"
+  export_log_file: "logs/export_onnx.log"
   log_file: "logs/ptq.log"

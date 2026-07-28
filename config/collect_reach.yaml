@@ -1,4 +1,4 @@
-# Expert demonstration collection (scripts/collect_data.py).
+# Expert demonstration collection (scripts/collection/collect_reach_data.py).
 
 collection:
   n_episodes: 200
@@ -10,6 +10,6 @@ collection:
     - "ego_cam"
 
   hub:
-    repo_id: "jgilewicz/distil_act_reach_env"
-    auto_pull: true   
-    auto_push: false 
+    repo_id: "jgilewicz/act_reach_env"
+    auto_pull: true
+    auto_push: false

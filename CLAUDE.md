@@ -19,7 +19,8 @@ just train               # train teacher ACT policy
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
-just ptq                 # post-training quantization (ONNX Runtime): static + dynamic int8 student
+just export-onnx         # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast)
+just ptq                 # post-training quantization (ONNX Runtime): static + dynamic int8 student, from the exported fp32 ONNX
 just measure             # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
 just push-data           # push collected dataset to the Hub
 just push-teacher        # push teacher checkpoint to the Hub
@@ -32,7 +33,7 @@ just clean               # remove generated logs, dataset, and pycache
 
 On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`. `just measure` is headless (no viewer), so it runs under plain `python3` and works cross-platform.
 
-All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `ptq`) — split into separate files (`simulation.yaml`, `collection.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `ptq` section. No hardcoded constants in source files.
+All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`reach_env.py`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `ptq`) — split into separate files (`simulation.yaml`, `collect_reach.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `ptq` section. No hardcoded constants in source files.
 
 Each stage's Hub interaction (dataset/checkpoint download and upload) is config-driven, not a separate manual step: every stage config carries a `hub` block with `repo_id`/`filename` plus `auto_pull` (download if the local file/dir is missing — via `src/utils/hub.py`) and `auto_push` (upload once the stage finishes). The dedicated `push-*` scripts/just recipes remain for pushing on demand (e.g. re-pushing without retraining).
 
@@ -62,13 +63,16 @@ ReachEnvironment → ReachExpert → SceneRenderer → EpisodeRecorder → Datas
                                                                               eval_distil.py + ChunkingBuffer
 ```
 
-Quantization branch (Phase 4) — all read `distil_act_model_final.pt`, all write ONNX, all measured through ONNX Runtime:
+Quantization branch (Phase 4) — export to ONNX is a separate step from PTQ itself; both write ONNX, both measured through ONNX Runtime:
 
 ```
-distil_act_model_final.pt ──> ptq.py  ──> distil_act_model_ptq.onnx  (static QDQ int8)
-                          └──> ptq.py  ──> distil_act_model_dyn.onnx  (dynamic weight-only int8)
+distil_act_model_final.pt ──> export_onnx.py ──> distil_act_model_32.onnx  (fp32, torch.onnx.export)
+                                             └──> distil_act_model_16.onnx  (fp16, modelopt autocast)
                                                     ↓
-                                distillation_measure.py (OnnxModel via ONNX Runtime)
+                                distil_act_model_32.onnx ──> ptq.py ──> distil_act_model_ptq.onnx  (static QDQ int8)
+                                                         └──> ptq.py ──> distil_act_model_dyn.onnx  (dynamic weight-only int8)
+                                                                                ↓
+                                                        distillation_measure.py (OnnxModel via ONNX Runtime)
 ```
 
 ### Key files
@@ -76,10 +80,10 @@ distil_act_model_final.pt ──> ptq.py  ──> distil_act_model_ptq.onnx  (st
 **`src/env/base.py` — `Environment`**
 - Abstract base class with `reset() -> np.ndarray` and `step(action) -> (obs, terminated)`.
 
-**`src/env/env.py` — `ReachEnvironment(Environment)`**
+**`src/env/reach_env.py` — `ReachEnvironment(Environment)`**
 - Merges `models/reach_scene.xml` with the `low_cost_robot_arm` MJCF from `robot_descriptions` at runtime; attaches an `ego_cam` to `robot_gripper_static_finger`.
 - All robot bodies/joints/actuators are prefixed `robot_` after merging.
-- `step(action)` returns `(obs, terminated)` — terminated when EE distance < `reach_threshold`.
+- `step(action)` returns `(obs, terminated)` — terminated when EE distance < `placement_threshold`.
 - Observation vector: `[qpos(6), qvel(6), ee_pos(3), target_pos(3)]`. Target is a mocap body.
 
 **`src/expert/reach_expert.py` — `ReachExpert`**
@@ -103,22 +107,26 @@ distil_act_model_final.pt ──> ptq.py  ──> distil_act_model_ptq.onnx  (st
 - `act_policy.py` — `ACT`: full encoder-decoder Transformer. Training: takes `(images, qpos, actions)`, runs CVAE encoder for latent z, returns `(pred_actions, mu, logvar)`. Inference: z=0, returns `pred_actions` only.
 - `chunking_buffer.py` — `ChunkingBuffer`: stores overlapping action chunk predictions; `get_action(t)` returns exponentially weighted average over all chunks that cover timestep t; evicts chunks older than `chunk_size` steps.
 
-**`scripts/distillation_measure.py`**
-- Evaluates the fp32 teacher and student plus two quantized ONNX variants (`student_ptq`, `student_dyn`) over `eval.measure.n_episodes` randomly-seeded episodes.
-- fp32 models load via `load_model` (torch) on the selected device; the quantized ONNX variants load via `load_quantized_model` → `OnnxModel` (an `onnxruntime.InferenceSession` wrapper) on CPU, reusing the student checkpoint's `norm_mean`/`norm_std` (the ONNX files carry no norm stats).
+**`scripts/eval/distillation_measure.py`**
+- Evaluates the fp32 teacher and student, three ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`), and two TensorRT engine variants (`student_trt_fp32`, `student_trt_fp16`) over `eval.measure.n_episodes` randomly-seeded episodes.
+- fp32 models load via `load_model` (torch) on the selected device; the ONNX Runtime variants load via `load_quantized_model` → `OnnxModel` (an `onnxruntime.InferenceSession` wrapper) on CPU; the TensorRT variants load via `load_tensorrt_model` → `TensorRtModel`, which builds/caches an engine with `utils.tensorrt.build_engine` (`ptq.engine_fp32_path`/`ptq.engine_fp16_path`) and runs it with `utils.tensorrt.run_inference`. All non-torch variants reuse the student checkpoint's `norm_mean`/`norm_std` (the ONNX/engine files carry no norm stats).
 - Per-episode: runs the full policy loop headlessly, records inference times, joint trajectories, EE positions, and success.
-- Aggregates: success rate, mean convergence time, mean inference latency, model size, peak VRAM/RAM.
+- Aggregates: success rate, mean convergence time, mean inference latency, model size (engine file size for TRT variants), peak VRAM/RAM.
 - Writes `eval.measure.output_path` (JSON) and logs to `eval.measure.log_file`.
 
-**`scripts/ptq.py`**
-- Post-training quantization of the distilled student via ONNX Runtime, on CPU.
-- Exports the student's inference path (`actions=None`) to fp32 ONNX (`torch.onnx.export(..., dynamo=True)`, input names `images`/`joints`), runs `quant_pre_process(skip_symbolic_shape=True)` (symbolic shape inference chokes on the transformer's `Loop` node), then produces two int8 models: static QDQ via `quantize_static` + an `ActCalibrationReader` over the val split (`ptq.output_path`), and dynamic weight-only via `quantize_dynamic` (`ptq.dyn_path`). Before dynamic quant it strips `graph.value_info` (the dynamo export's stale shapes trip `quantize_dynamic`'s strict shape inference).
+**`scripts/quantization/export_onnx.py`**
+- Exports the distilled student's inference path (`actions=None`) to ONNX; loading the checkpoint and building the model is only done here, not in `ptq.py`.
+- Exports fp32 via `torch.onnx.export(..., dynamo=True)` (input names `images`/`joints`) to `ptq.fp32_path`, then converts that to a mixed-precision fp16 graph via `modelopt.onnx.autocast.convert_to_mixed_precision` (`keep_io_types=True`) to `ptq.fp16_path`. TensorRT 11.x removed the builder-side `BuilderFlag.FP16`/`INT8` flags in favor of this offline ModelOpt AutoCast pass — precision is now baked into the ONNX graph (explicit `Cast` nodes) before it ever reaches TensorRT or ONNX Runtime.
 
-**`scripts/train_distil.py`**
+**`scripts/quantization/ptq.py`**
+- Post-training quantization of the already-exported fp32 ONNX (`ptq.fp32_path`) via ONNX Runtime, on CPU. Does not touch the checkpoint or the model class — run `export_onnx.py` first.
+- Runs `quant_pre_process(skip_symbolic_shape=True)` (symbolic shape inference chokes on the transformer's `Loop` node), then produces two int8 models: static QDQ via `quantize_static` + an `ActCalibrationReader` over the val split (`ptq.output_path`), and dynamic weight-only via `quantize_dynamic` (`ptq.dyn_path`). Before dynamic quant it strips `graph.value_info` (the dynamo export's stale shapes trip `quantize_dynamic`'s strict shape inference).
+
+**`scripts/training/train_distil.py`**
 - Loads the frozen teacher (`training` dims) and trains a smaller student `ACT` (`distillation` dims, `distil_act=True` → MobileNetV3-Large backbone instead of EfficientNet-B3).
 - Loss = `alpha * hard_loss + (1-alpha) * soft_loss + beta * prior_kl + gamma * distill_kl`; `distill_kl` matches the student's latent (projected to `teacher_latent_dim`) against the teacher's CVAE posterior at `temperature`.
 
-**`scripts/eval_act.py`** / **`scripts/eval_distil.py`**
+**`scripts/eval/eval_act.py`** / **`scripts/eval/eval_distil.py`**
 - Load `eval.teacher.checkpoint` / `eval.student.checkpoint` respectively (model weights + `norm_mean` + `norm_std`). The student script builds its `ACT` with `distillation` dims and `distil_act=True` — these must match the architecture the checkpoint was trained with.
 - Queries ACT every `chunk_size // 5` physics steps; `ChunkingBuffer` provides temporally ensembled actions for intermediate steps.
 - Renders passive viewer via `SceneRenderer`; writes the configured `video_path` from the overhead camera.
@@ -127,6 +135,7 @@ distil_act_model_final.pt ──> ptq.py  ──> distil_act_model_ptq.onnx  (st
 - `logger.py` — `Logger(filename)`: logs `[INFO]`/`[WARNING]`/`[ERROR]` to stdout and file simultaneously.
 - `config.py` — `load_config(config_dir="config")`: merges every `*.yaml` in the directory into one dict; raises on duplicate top-level keys.
 - `hub.py` — `ensure_checkpoint`/`ensure_dataset` (download if missing) and `push_checkpoint`/`push_dataset` (upload), shared by the training scripts' auto-pull/auto-push hooks and the manual `push_*_to_hub.py` scripts.
+- `tensorrt.py` — `build_engine(onnx_path, engine_path)` (parses an ONNX graph, builds a serialized TensorRT engine, caches it to `engine_path`) and `run_inference(engine_bytes, inputs)` (raw `cuda-python`/`cudart` H2D copy → `execute_async_v3` → D2H copy). Shared between `scripts/quantization/inference.py` (standalone CLI smoke test) and `distillation_measure.py` (fp32/fp16 TensorRT benchmark variants).
 
 ### Style rules
 - No `sys.path` manipulation — packages are installed via `uv sync` (hatchling src layout).

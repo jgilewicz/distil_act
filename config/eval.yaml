@@ -15,12 +15,12 @@ eval:
     repo_id: "jgilewicz/distil_act_student"
     filename: "distil_act_model_final.pt"
     auto_pull: true
-    seed: 1
+    seed: 0
     video_path: "artifacts/eval_student.mp4"
     log_file: "logs/eval_student.log"
 
   measure:
-    n_episodes: 50
+    n_episodes: 20
     log_file: "logs/distillation_measure.log"
     output_path: "artifacts/distillation_metrics.json"
 

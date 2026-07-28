@@ -11,7 +11,7 @@ import torch
 
 from algorithms.act_policy import ACT
 from algorithms.chunking_buffer import ChunkingBuffer
-from env.env import ReachEnvironment
+from env.reach_env import ReachEnvironment
 from renderer.renderer import SceneRenderer
 from utils.config import load_config
 from utils.hub import ensure_checkpoint
@@ -77,6 +77,33 @@ def load_quantized_model(onnx_path, norm_checkpoint, device):
     return model, norm_mean, norm_std
 
 
+class TensorRtModel:
+    def __init__(self, onnx_path, engine_path, logger=None):
+        from utils.tensorrt import TensorRtRuntime, build_engine
+
+        engine_bytes = build_engine(onnx_path, engine_path, logger=logger)
+        self._runtime = TensorRtRuntime(engine_bytes)
+
+    def __call__(self, images, joints):
+        feeds = {
+            "images": images.detach().cpu().numpy().astype(np.float32),
+            "joints": joints.detach().cpu().numpy().astype(np.float32),
+        }
+        return torch.from_numpy(self._runtime.infer(feeds))
+
+    def close(self):
+        self._runtime.close()
+
+
+def load_tensorrt_model(onnx_path, engine_path, norm_checkpoint, device, logger=None):
+    model = TensorRtModel(onnx_path, engine_path, logger=logger)
+
+    checkpoint = torch.load(norm_checkpoint, map_location=device, weights_only=True)
+    norm_mean = checkpoint["norm_mean"].to(device)
+    norm_std = checkpoint["norm_std"].to(device)
+    return model, norm_mean, norm_std
+
+
 def run_episode(
     model,
     norm_mean,
@@ -124,9 +151,13 @@ def run_episode(
                 ) / norm_std
                 images_t = frames_to_tensor(frames, cameras, device)
 
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
                 start = time.perf_counter()
                 with torch.inference_mode():
                     pred_norm = model(images_t, qpos_t.unsqueeze(0)).squeeze(0)
+                if device.type == "cuda":
+                    torch.cuda.synchronize(device)
                 infer_times.append(time.perf_counter() - start)
 
                 buffer.add(pred_norm, step)
@@ -163,16 +194,26 @@ def measure_model(
     logger,
     quantized=False,
     norm_checkpoint=None,
+    engine_path=None,
 ):
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
+    _rss_divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
+    ram_before_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
 
-    if quantized:
+    if engine_path is not None:
+        model, norm_mean, norm_std = load_tensorrt_model(
+            checkpoint_path, engine_path, norm_checkpoint, device, logger=logger
+        )
+        size_path = engine_path
+    elif quantized:
         model, norm_mean, norm_std = load_quantized_model(
             checkpoint_path, norm_checkpoint, device
         )
+        size_path = checkpoint_path
     else:
         model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
+        size_path = checkpoint_path
 
     env_cfg = cfg["env"]
     r_cfg = cfg["renderer"]
@@ -186,29 +227,33 @@ def measure_model(
     joints = []
     ee_pos = []
 
-    for seed in range(n_episodes):
-        result = run_episode(
-            model,
-            norm_mean,
-            norm_std,
-            env_cfg,
-            r_cfg,
-            cameras,
-            chunk_size,
-            action_dim,
-            max_steps,
-            seed,
-            device,
-        )
-        if result["success"]:
-            successes += 1
-            sim_times.append(result["sim_time"])
-        infer_times.extend(result["infer_times"])
-        joints.append(result["joints"])
-        ee_pos.append(result["ee_pos"])
-        logger.info(
-            f"{name} seed {seed}: success={result['success']} sim_time={result['sim_time']:.3f}s"
-        )
+    try:
+        for seed in range(n_episodes):
+            result = run_episode(
+                model,
+                norm_mean,
+                norm_std,
+                env_cfg,
+                r_cfg,
+                cameras,
+                chunk_size,
+                action_dim,
+                max_steps,
+                seed,
+                device,
+            )
+            if result["success"]:
+                successes += 1
+                sim_times.append(result["sim_time"])
+            infer_times.extend(result["infer_times"])
+            joints.append(result["joints"])
+            ee_pos.append(result["ee_pos"])
+            logger.info(
+                f"{name} seed {seed}: success={result['success']} sim_time={result['sim_time']:.3f}s"
+            )
+    finally:
+        if isinstance(model, TensorRtModel):
+            model.close()
 
     joints = np.concatenate(joints, axis=0)
     ee_pos = np.concatenate(ee_pos, axis=0)
@@ -218,9 +263,9 @@ def measure_model(
         if device.type == "cuda"
         else None
     )
-    _rss_divisor = 1024 * 1024 if platform.system() == "Darwin" else 1024
-    ram_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
-    size_mb = os.path.getsize(checkpoint_path) / (1024**2)
+    ram_after_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
+    ram_delta_mb = max(0.0, ram_after_mb - ram_before_mb)
+    size_mb = os.path.getsize(size_path) / (1024**2)
 
     metrics = {
         "success_rate": successes / n_episodes,
@@ -228,7 +273,7 @@ def measure_model(
         "mean_inference_time_ms": float(np.mean(infer_times) * 1000),
         "model_size_mb": size_mb,
         "vram_mb": vram_mb,
-        "ram_mb": ram_mb,
+        "ram_delta_mb": ram_delta_mb,
         "joint_mean": joints.mean(axis=0).tolist(),
         "joint_std": joints.std(axis=0).tolist(),
         "ee_pos_mean": ee_pos.mean(axis=0).tolist(),
@@ -306,6 +351,7 @@ def main():
     quantized_variants = {
         "student_ptq": cfg["ptq"]["output_path"],
         "student_dyn": cfg["ptq"]["dyn_path"],
+        "student_fp16_onnx": cfg["ptq"]["fp16_path"],
     }
     quantized_metrics = {}
     for name, onnx_path in quantized_variants.items():
@@ -322,10 +368,30 @@ def main():
             norm_checkpoint=student_ev["checkpoint"],
         )
 
+    trt_variants = {
+        "student_trt_fp32": (cfg["ptq"]["fp32_path"], cfg["ptq"]["engine_fp32_path"]),
+        "student_trt_fp16": (cfg["ptq"]["fp16_path"], cfg["ptq"]["engine_fp16_path"]),
+    }
+    trt_metrics = {}
+    for name, (onnx_path, engine_path) in trt_variants.items():
+        trt_metrics[name] = measure_model(
+            name,
+            onnx_path,
+            student_kwargs,
+            t["chunk_size"],
+            t["action_dim"],
+            cfg,
+            torch.device("cpu"),
+            logger,
+            norm_checkpoint=student_ev["checkpoint"],
+            engine_path=engine_path,
+        )
+
     results = {
         "teacher": teacher_metrics,
         "student": student_metrics,
         **quantized_metrics,
+        **trt_metrics,
     }
     os.makedirs(os.path.dirname(m["output_path"]), exist_ok=True)
     with open(m["output_path"], "w") as f:

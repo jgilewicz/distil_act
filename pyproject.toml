@@ -3,7 +3,7 @@ name = "act-distill"
 version = "0.1.0"
 description = "ACT visuomotor policy distillation for a MuJoCo reach task"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "h5py>=3.16.0",
     "huggingface-hub>=0.27.0",
@@ -20,6 +20,13 @@ dependencies = [
     "onnx>=1.22.0",
     "onnxscript>=0.7.1",
     "onnxruntime>=1.27.0",
+    "tensorrt>=11.1.0.106; sys_platform == 'linux'",
+    "cuda-python>=13.3.1; sys_platform == 'linux'",
+    "nvidia-modelopt>=0.45.0",
+    "onnx-graphsurgeon>=0.6.1",
+    "onnxslim>=0.1.94",
+    "lief>=1.0.0",
+    "polygraphy>=0.50.3",
 ]
 
 [build-system]

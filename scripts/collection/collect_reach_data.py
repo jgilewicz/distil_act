@@ -2,7 +2,7 @@ import os
 
 import numpy as np
 
-from env.env import ReachEnvironment
+from env.reach_env import ReachEnvironment
 from expert.base import Expert
 from expert.reach_expert import ReachExpert
 from renderer.renderer import SceneRenderer
@@ -24,7 +24,7 @@ def collect_episode(
     log: Logger,
 ) -> tuple[float, bool]:
     obs = env.reset()
-    expert.reset()
+
 
     recorder = dataset.create_new_episode()
     terminated = False

@@ -42,12 +42,12 @@ All settings live under `config/`, split into one file per pipeline stage so you
 
 | File | Section(s) | Used by |
 |---|---|---|
-| `config/simulation.yaml` | `env`, `expert`, `renderer` | collection, both eval scripts |
-| `config/collection.yaml` | `collection` | `collect_data.py`, `push_data_to_hub.py` |
+| `config/simulation.yaml` | `reach_env.py`, `expert`, `renderer` | collection, both eval scripts |
+| `config/collect_reach.yaml` | `collection` | `collect_data.py`, `push_data_to_hub.py` |
 | `config/train.yaml` | `training` | `train_act.py`, `push_teacher_to_hub.py` |
 | `config/distill.yaml` | `distillation` | `train_distil.py`, `push_student_to_hub.py` |
 | `config/eval.yaml` | `eval` | `eval_act.py`, `eval_distil.py`, `distillation_measure.py` |
-| `config/quant.yaml` | `ptq` | `ptq.py` |
+| `config/quant.yaml` | `ptq` | `export_onnx.py`, `ptq.py` |
 
 `load_config()` merges every `*.yaml` in `config/` into a single dict, so scripts just do `cfg["training"]`, `cfg["eval"]["teacher"]`, etc. regardless of which file the section lives in.
 
@@ -81,7 +81,8 @@ just train               # train the ACT teacher (logs to W&B, saves to artifact
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
 just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
-just ptq                 # post-training quantization (ONNX): static + dynamic int8 student
+just export-onnx         # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast)
+just ptq                 # post-training quantization (ONNX): static + dynamic int8 student, from the exported fp32 ONNX
 just measure             # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
 just push-data           # push the collected dataset to the Hub
 just push-teacher        # push the teacher checkpoint to the Hub
@@ -114,11 +115,16 @@ Writes `distil_act_model_step_<N>.pt` / `distil_act_model_final.pt` into `distil
 
 ## Quantization
 
-`just ptq` compresses the distilled student for edge deployment via ONNX Runtime post-training quantization. It starts from `distil_act_model_final.pt`, exports the student's inference path to fp32 ONNX, then writes two int8 models, both benchmarked by `just measure` alongside the fp32 models. Settings live in `config/quant.yaml` (`ptq` section); outputs land in `artifacts/`.
+Compressing the distilled student for edge deployment is two separate steps — export to ONNX, then quantize. Settings for both live in `config/quant.yaml` (`ptq` section); outputs land in `artifacts/`.
 
 ```bash
-just ptq     # post-training quantization (CPU, ONNX Runtime)
+just export-onnx   # distil_act_model_final.pt → fp32 ONNX (torch.onnx.export) + fp16 ONNX (modelopt autocast)
+just ptq           # fp32 ONNX → static + dynamic int8 (CPU, ONNX Runtime)
 ```
+
+`export_onnx.py` loads the checkpoint and exports the student's inference path to fp32 ONNX, then converts it to a mixed-precision fp16 graph via `modelopt.onnx.autocast` — the offline replacement for TensorRT's removed `BuilderFlag.FP16`/`INT8` builder flags (TensorRT 11.x now expects precision baked into the ONNX graph ahead of time).
+
+`ptq.py` only touches the already-exported fp32 ONNX (run `export-onnx` first) and writes two int8 models, both benchmarked by `just measure` alongside the fp32 models:
 
 - **static** QDQ (`distil_act_model_ptq.onnx`) — calibrated on the validation split.
 - **dynamic** weight-only (`distil_act_model_dyn.onnx`) — no calibration.
@@ -142,38 +148,42 @@ The policy is queried every `chunk_size // 5` physics steps; `ChunkingBuffer` ha
 just measure
 ```
 
-Runs `scripts/distillation_measure.py`: evaluates the fp32 teacher and student plus the two quantized variants (`student_ptq`, `student_dyn`) over `eval.measure.n_episodes` randomly-seeded episodes and writes `artifacts/distillation_metrics.json` with, per model:
+Runs `scripts/eval/distillation_measure.py`: evaluates the fp32 teacher and student, three ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`), and two TensorRT variants (`student_trt_fp32`, `student_trt_fp16`) over `eval.measure.n_episodes` randomly-seeded episodes and writes `artifacts/distillation_metrics.json` with, per model:
 
 - `success_rate` — fraction of episodes where the EE reached the target
 - `mean_convergence_time_s` — average sim time for successful episodes
 - `mean_inference_time_ms` — average forward-pass latency
 - `model_size_mb` — checkpoint size on disk
-- `vram_mb` / `ram_mb` — peak memory usage (VRAM on CUDA, RSS otherwise)
+- `vram_mb` — peak VRAM on CUDA (`torch.cuda.max_memory_allocated`, reset per variant)
+- `ram_delta_mb` — growth in process RSS high-water mark (`ru_maxrss`) attributable to this variant's episodes; not an isolated peak, since all variants share one process
 - `joint_mean` / `joint_std` / `ee_pos_mean` / `ee_pos_std` — trajectory statistics across all episodes
 
 ## Results
 
-Evaluated over 50 randomly-seeded episodes on an x86 machine. The fp32 teacher and student run on **CUDA**; the int8 variants run on **CPU** via ONNX Runtime — so latency is not directly comparable across those two groups.
+**Stale — predates fixes to `distillation_measure.py`'s CUDA timing sync, TensorRT engine reuse, and RSS accounting; re-run `just measure` to regenerate.**
 
-| Metric | Teacher (fp32, GPU) | Student (fp32, GPU) | Student PTQ static (int8, CPU) | Student PTQ dynamic (int8, CPU) |
-|---|---|---|---|---|
-| Success rate | 82% | 82% | 10% | 12% |
-| Mean convergence time † | 0.79 s | 0.77 s | 0.41 s | 0.61 s |
-| Inference latency | 16.5 ms | 8.4 ms | 194.3 ms | 885.5 ms |
-| Model size | 107.6 MB | 26.3 MB | 6.8 MB | 6.9 MB |
-| Peak VRAM | 330.9 MB | 149.7 MB | — | — |
-| Peak RAM | 2033.8 MB | 2079.5 MB | 2419.6 MB | 2539.6 MB |
+Evaluated over 20 randomly-seeded episodes on an x86 machine. The fp32 teacher and student run on **CUDA** (torch); `student_ptq`/`student_dyn`/`student_fp16_onnx` run on **CPU** via ONNX Runtime; `student_trt_fp32`/`student_trt_fp16` run on **CUDA** via TensorRT — so latency is only directly comparable within each group.
 
-† Averaged only over *successful* episodes, so the int8 columns (≈5–6 successes each) are noisy and not meaningfully comparable.
+| Metric | Teacher (fp32, GPU) | Student (fp32, GPU) | Student fp16 (ONNX, CPU) | Student PTQ static (int8, CPU) | Student PTQ dynamic (int8, CPU) | Student TRT (fp32, GPU) | Student TRT (fp16, GPU) |
+|---|---|---|---|---|---|---|---|
+| Success rate | 95% | 80% | 85% | 55% | 30% | 80% | 85% |
+| Mean convergence time † | 0.77 s | 0.95 s | 0.95 s | 0.77 s | 0.64 s | 0.94 s | 0.93 s |
+| Inference latency | 23.3 ms | 11.7 ms | 61.3 ms | 92.8 ms | 394.9 ms | 192.5 ms | 170.6 ms |
+| Model size | 107.6 MB | 26.3 MB | 10.9 MB | 6.7 MB | 6.4 MB | 23.9 MB | 12.6 MB |
+| Peak VRAM | 307.0 MB | 125.8 MB | — | — | — | — | — |
+| Peak RAM | 2193.2 MB | 2241.5 MB | 2562.4 MB | 2482.0 MB | 2560.2 MB | 3948.7 MB | 5251.3 MB |
 
-**Distillation is a clear win.** The student matches the teacher's 82% success rate while being **4.1× smaller**, **2× faster**, and using ~2.2× less VRAM. That's the headline result of the pipeline.
+† Averaged only over *successful* episodes, so columns with fewer successes (e.g. the 30% `student_dyn` row) are noisier and less comparable.
 
-**Quantization, on this setup, is not.** Static and dynamic int8 PTQ shrink the student a further ~3.9× (to ~6.8 MB, **15.8× smaller than the teacher**), but success collapses to 10–12% and CPU inference is an order of magnitude slower than the GPU fp32 models. Two things compound here:
+**Distillation is a solid compression win, at some accuracy cost.** The student is **4.1× smaller** and **~2× faster** than the teacher on GPU, using ~2.4× less VRAM, but success rate drops from 95% to 80% — the CVAE-distilled policy generalizes slightly worse than the teacher it was trained from.
 
-- **Accuracy** — per-tensor int8 PTQ is brutal on Transformers; attention logits and LayerNorm activations have a wide dynamic range that per-tensor int8 can't represent, and both static (calibrated) and dynamic (weight-only) variants degrade the same way. Per-channel weights, keeping attention/LayerNorm in fp32, or QAT would be needed to recover it — eager QAT was attempted but its fake-quant op is unsupported by the current ONNX exporters.
-- **Latency** — the int8 QDQ graph runs on CPU with unoptimised ONNX Runtime kernels for this model, so it loses badly to the fp32 models on GPU. The only real gain is on-disk size, which matters for storage/load time on edge devices but not for throughput here.
+**int8 PTQ still trades accuracy for size, but per-channel calibration narrows the gap.** Static QDQ int8 (`student_ptq`) now reaches 55% success (up from a per-tensor baseline that collapsed to ~10%) at 6.7 MB — **16× smaller than the teacher, 3.9× smaller than the fp32 student** — while dynamic weight-only quantization (`student_dyn`) is both less accurate (30%) and far slower (394.9 ms), since its unoptimised CPU kernels do more work per call than the statically calibrated QDQ graph. Both remain well below the fp32 student's 80% success rate.
 
-Bottom line: for this ACT policy, **distillation delivers the compression that keeps the task working**, while naive int8 PTQ trades almost all of the task away for a marginal extra size reduction.
+**fp16 is the best accuracy/size trade-off of the quantized variants.** The plain fp16 ONNX graph (`student_fp16_onnx`, CPU) matches or beats the fp32 student's success rate (85% vs 80%) at less than half the size (10.9 MB), though at ~5× the latency of the GPU fp32 student since it runs on CPU.
+
+**TensorRT is not a latency win here.** Both TRT engines match or beat the fp32 student on success rate (80% / 85%) and shrink further on disk, but their measured inference latency (170–193 ms) is far higher than either the torch fp32 student (11.7 ms) or the CPU ONNX Runtime variants — most likely dominated by per-call H2D/D2H copy overhead in the raw `cuda-python` inference path (`src/utils/tensorrt.py`) rather than the engine's actual compute time, since this model's per-step batch is tiny. TRT fp16 (12.6 MB) does halve the engine size and cut latency versus TRT fp32 (23.9 MB), consistent with fp16 compute/memory savings once that fixed overhead is factored in.
+
+Bottom line: distillation remains the headline compression step; among the post-training quantization options, **fp16 ONNX gives the best size/accuracy balance without a GPU**, per-channel int8 PTQ is usable but lossy, dynamic int8 is not recommended, and the current TensorRT integration needs its inference path optimized (batched calls, persistent buffers) before its latency numbers are meaningful.
 
 ## Headless rendering (no display)
 
@@ -182,7 +192,7 @@ MuJoCo reads `MUJOCO_GL` **at import time** — it must be set in the shell befo
 `just collect-headless` already sets `MUJOCO_GL=egl`. If you run the script directly:
 
 ```bash
-MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collect_data.py
+MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py
 ```
 
 ### Choosing a backend
@@ -203,7 +213,7 @@ If EGL still fails (`gladLoadGL error`), fall back to OSMesa:
 
 ```bash
 apt-get install -y libosmesa6
-MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collect_data.py
+MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py
 ```
 
 The Docker image ships with `libegl1` + `libgl1` and sets `MUJOCO_GL=disabled` for tests (physics only). Switch it to `egl` for any container that needs to render frames.
@@ -255,7 +265,7 @@ Replace the reach-specific env block with your task's parameters and point `scen
 
 ### 4. Swap imports in two scripts
 
-`scripts/collect_data.py` and `scripts/eval_act.py` / `scripts/eval_distil.py` import `ReachEnvironment` and `ReachExpert` directly — replace those with your new classes. Everything else (`train_act.py`, `train_distil.py`, `distillation_measure.py`, all of `src/`) is unchanged.
+`scripts/collection/collect_data.py` and `scripts/eval/eval_act.py` / `scripts/eval/eval_distil.py` import `ReachEnvironment` and `ReachExpert` directly — replace those with your new classes. Everything else (`train_act.py`, `train_distil.py`, `distillation_measure.py`, all of `src/`) is unchanged.
 
 ## Project structure
 
@@ -268,16 +278,23 @@ src/
   algorithms/       # ACT policy, ImageEmbedding, ChunkingBuffer
   utils/            # logger, config loader, Hugging Face Hub helpers
 scripts/
-  collect_data.py           # expert demo collection
-  train_act.py              # ACT teacher training loop
-  train_distil.py           # student distillation loop
-  eval_act.py               # teacher evaluation + video export
-  eval_distil.py            # student evaluation + video export
-  ptq.py                    # post-training quantization → static + dynamic int8 ONNX
-  distillation_measure.py   # teacher / student / quantized benchmark (success, latency, memory)
-  push_data_to_hub.py       # manual dataset push
-  push_teacher_to_hub.py    # manual teacher checkpoint push
-  push_student_to_hub.py    # manual student checkpoint push
+  collection/
+    collect_data.py          # expert demo collection
+  training/
+    train_act.py             # ACT teacher training loop
+    train_distil.py          # student distillation loop
+  eval/
+    eval_act.py               # teacher evaluation + video export
+    eval_distil.py            # student evaluation + video export
+    distillation_measure.py   # teacher / student / quantized benchmark (success, latency, memory)
+  quantization/
+    export_onnx.py            # export distilled student → fp32 + fp16 ONNX
+    ptq.py                     # post-training quantization → static + dynamic int8 ONNX
+    inference.py               # TensorRT engine build + inference
+  hub/
+    push_data_to_hub.py       # manual dataset push
+    push_teacher_to_hub.py    # manual teacher checkpoint push
+    push_student_to_hub.py    # manual student checkpoint push
 models/
   reach_scene.xml
 tests/

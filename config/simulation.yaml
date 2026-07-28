@@ -1,14 +1,15 @@
-# Physics, IK expert, and rendering — shared by data collection and both eval scripts.
+# Physics, IK expert, and rendering — shared by reach data collection and both eval scripts.
 
 env:
   scene_xml_path: "models/reach_scene.xml"
   target_x_range: [0.0, 0.13]
   target_y_range: [0.08, 0.20]
   target_z_range: [0.10, 0.20]
-  reach_threshold: 0.025
+  reach_threshold: 0.04
+
 
 expert:
-  dt: 0.002
+  dt: 0.01
   solver: "daqp"
   max_iters: 10
   ik_pos_threshold: 0.005

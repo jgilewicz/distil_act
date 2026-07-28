@@ -1,17 +1,9 @@
 import mink
 import numpy as np
 
-from env.env import ReachEnvironment
+from env.reach_env import ReachEnvironment
 from expert.base import Expert
-
-_JOINT_NAMES = [
-    "robot_base_rotation",
-    "robot_pitch",
-    "robot_elbow",
-    "robot_wrist_pitch",
-    "robot_wrist_roll",
-    "robot_gripper",
-]
+from expert.base import _JOINT_NAMES
 
 
 class ReachExpert(Expert):

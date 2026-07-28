@@ -5,7 +5,7 @@ import torch
 
 from algorithms.act_policy import ACT
 from algorithms.chunking_buffer import ChunkingBuffer
-from env.env import ReachEnvironment
+from env.reach_env import ReachEnvironment
 from renderer.renderer import SceneRenderer
 from utils.config import load_config
 from utils.hub import ensure_checkpoint

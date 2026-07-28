@@ -35,3 +35,6 @@ artifacts/
 
 # wandb
 .wandb/
+
+# PyCharm
+.idea/
