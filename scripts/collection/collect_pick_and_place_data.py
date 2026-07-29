@@ -23,6 +23,7 @@ def collect_episode(
     log: Logger,
 ) -> tuple[float, bool]:
     obs = env.reset()
+    expert.reset()
 
     recorder = dataset.create_new_episode()
     terminated = False

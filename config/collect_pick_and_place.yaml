@@ -11,19 +11,18 @@ pick_and_place_env:
   placement_x_range: [0.06, 0.10]
   placement_y_range: [0.13, 0.15]
   box_height: 0.01
-  placement_threshold: 0.1
+  placement_threshold: 0.012
 
 pick_and_place_expert:
   dt: 0.01
   solver: "daqp"
   max_iters: 10
   ik_pos_threshold: 0.05
-  approach_height: 0.1
-  grasp_clearance: 0.02
+
 
 pick_and_place_collection:
   n_episodes: 200
-  n_steps: 1000
+  n_steps: 2500
   dataset_dir: "data/pick_and_place"
   log_file: "logs/pick_and_place_data_gathering.log"
   render_cameras:

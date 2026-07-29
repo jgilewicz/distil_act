@@ -2,7 +2,7 @@
 
 A research project exploring in-simulation imitation learning and policy distillation. A scripted expert collects demonstrations in MuJoCo, an ACT teacher is trained via behaviour cloning, and a smaller student is distilled from it for edge deployment — all within a single, config-driven pipeline.
 
-The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation — carries over to any new task without modification. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
+The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation — carries over to any new task without modification. A second task, pick-and-place (box pickup + placement, `src/env/pick_and_place_env.py` + `src/expert/pick_and_place_expert.py`), follows this same pattern; demonstration collection is wired up (`just collect-pick-and-place`), but training/distillation/eval still run against the reach task only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
 
 ## Stack
 
@@ -42,8 +42,9 @@ All settings live under `config/`, split into one file per pipeline stage so you
 
 | File | Section(s) | Used by |
 |---|---|---|
-| `config/simulation.yaml` | `reach_env.py`, `expert`, `renderer` | collection, both eval scripts |
-| `config/collect_reach.yaml` | `collection` | `collect_data.py`, `push_data_to_hub.py` |
+| `config/simulation.yaml` | `env`, `expert`, `renderer` | reach collection, both eval scripts |
+| `config/collect_reach.yaml` | `collection` | `collect_reach_data.py`, `push_data_to_hub.py` |
+| `config/collect_pick_and_place.yaml` | `pick_and_place_env`, `pick_and_place_expert`, `pick_and_place_collection` | `collect_pick_and_place_data.py` |
 | `config/train.yaml` | `training` | `train_act.py`, `push_teacher_to_hub.py` |
 | `config/distill.yaml` | `distillation` | `train_distil.py`, `push_student_to_hub.py` |
 | `config/eval.yaml` | `eval` | `eval_act.py`, `eval_distil.py`, `distillation_measure.py` |
@@ -75,8 +76,10 @@ Logging is likewise automatic and config-driven: every stage writes to the `log_
 
 ```bash
 just                     # list all available tasks
-just collect             # collect demos with viewer (macOS: uses mjpython)
-just collect-headless    # collect headless
+just collect             # collect reach demos with viewer (macOS: uses mjpython)
+just collect-headless    # collect reach demos headless
+just collect-pick-and-place            # collect pick-and-place demos with viewer (macOS: uses mjpython)
+just collect-pick-and-place-headless   # collect pick-and-place demos headless
 just train               # train the ACT teacher (logs to W&B, saves to artifacts/)
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
@@ -192,7 +195,7 @@ MuJoCo reads `MUJOCO_GL` **at import time** — it must be set in the shell befo
 `just collect-headless` already sets `MUJOCO_GL=egl`. If you run the script directly:
 
 ```bash
-MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py
+MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_reach_data.py
 ```
 
 ### Choosing a backend
@@ -213,7 +216,7 @@ If EGL still fails (`gladLoadGL error`), fall back to OSMesa:
 
 ```bash
 apt-get install -y libosmesa6
-MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py
+MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collection/collect_reach_data.py
 ```
 
 The Docker image ships with `libegl1` + `libgl1` and sets `MUJOCO_GL=disabled` for tests (physics only). Switch it to `egl` for any container that needs to render frames.
@@ -265,21 +268,22 @@ Replace the reach-specific env block with your task's parameters and point `scen
 
 ### 4. Swap imports in two scripts
 
-`scripts/collection/collect_data.py` and `scripts/eval/eval_act.py` / `scripts/eval/eval_distil.py` import `ReachEnvironment` and `ReachExpert` directly — replace those with your new classes. Everything else (`train_act.py`, `train_distil.py`, `distillation_measure.py`, all of `src/`) is unchanged.
+`scripts/collection/collect_reach_data.py` and `scripts/eval/eval_act.py` / `scripts/eval/eval_distil.py` import `ReachEnvironment` and `ReachExpert` directly — replace those with your new classes. Everything else (`train_act.py`, `train_distil.py`, `distillation_measure.py`, all of `src/`) is unchanged.
 
 ## Project structure
 
 ```
 src/
-  env/              # MuJoCo reach environment
-  expert/           # IK-based scripted expert (mink) + abstract base
+  env/              # MuJoCo reach + pick-and-place environments
+  expert/           # IK-based scripted experts (mink) + abstract base
   renderer/         # off-screen rendering + passive viewer
   dataset/          # HDF5 episode recording + PyTorch dataset/dataloader
   algorithms/       # ACT policy, ImageEmbedding, ChunkingBuffer
   utils/            # logger, config loader, Hugging Face Hub helpers
 scripts/
   collection/
-    collect_data.py          # expert demo collection
+    collect_reach_data.py            # reach expert demo collection
+    collect_pick_and_place_data.py   # pick-and-place expert demo collection
   training/
     train_act.py             # ACT teacher training loop
     train_distil.py          # student distillation loop
@@ -297,10 +301,12 @@ scripts/
     push_student_to_hub.py    # manual student checkpoint push
 models/
   reach_scene.xml
+  pick_and_place_scene.xml
 tests/
 config/
-  simulation.yaml   # env, expert, renderer
-  collection.yaml   # data collection
+  simulation.yaml               # reach env, expert, renderer
+  collect_reach.yaml            # reach data collection
+  collect_pick_and_place.yaml   # pick-and-place env, expert, collection
   train.yaml        # teacher training
   distill.yaml      # student distillation
   eval.yaml         # evaluation + measurement

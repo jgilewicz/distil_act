@@ -6,15 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
 
-Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses). Phase 4 adds post-training quantization of the distilled student via ONNX Runtime (static QDQ int8 + dynamic weight-only int8), exported to ONNX and benchmarked against the fp32 teacher/student in `distillation_measure.py`.
+Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses). Phase 4 adds post-training quantization of the distilled student via ONNX Runtime (static QDQ int8 + dynamic weight-only int8), exported to ONNX and benchmarked against the fp32 teacher/student in `distillation_measure.py`. A second task, pick-and-place (box pickup + placement), has been added at the env/expert layer alongside reach — demonstration collection is wired up (`just collect-pick-and-place[-headless]`); training/distillation/eval still run against the reach task only.
 
 ## Commands
 
 ```bash
 uv sync                  # install / sync dependencies
 just                     # list all available tasks
-just collect             # collect demos with viewer (macOS: uses mjpython)
-just collect-headless    # collect headless
+just collect             # collect reach demos with viewer (macOS: uses mjpython)
+just collect-headless    # collect reach demos headless
+just collect-pick-and-place            # collect pick-and-place demos with viewer (macOS: uses mjpython)
+just collect-pick-and-place-headless   # collect pick-and-place demos headless
 just train               # train teacher ACT policy
 just distill             # distill the teacher into a smaller student
 just eval                # run the trained teacher with viewer (macOS: uses mjpython)
@@ -33,7 +35,7 @@ just clean               # remove generated logs, dataset, and pycache
 
 On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`. `just measure` is headless (no viewer), so it runs under plain `python3` and works cross-platform.
 
-All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`reach_env.py`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `ptq`) — split into separate files (`simulation.yaml`, `collect_reach.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `ptq` section. No hardcoded constants in source files.
+All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `ptq`, `pick_and_place_env`, `pick_and_place_expert`, `pick_and_place_collection`) — split into separate files (`simulation.yaml`, `collect_reach.yaml`, `collect_pick_and_place.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `ptq` section; `collect_pick_and_place.yaml` holds the pick-and-place env/expert/collection sections, kept separate from `simulation.yaml`/`collect_reach.yaml` since the two tasks take different kwargs. No hardcoded constants in source files.
 
 Each stage's Hub interaction (dataset/checkpoint download and upload) is config-driven, not a separate manual step: every stage config carries a `hub` block with `repo_id`/`filename` plus `auto_pull` (download if the local file/dir is missing — via `src/utils/hub.py`) and `auto_push` (upload once the stage finishes). The dedicated `push-*` scripts/just recipes remain for pushing on demand (e.g. re-pushing without retraining).
 
@@ -91,6 +93,16 @@ distil_act_model_final.pt ──> export_onnx.py ──> distil_act_model_32.onn
 - Each `compute_action(obs)` call syncs mink config from live `data.qpos`, runs up to `max_iters` IK iterations (early-exit at `ik_pos_threshold`), returns a ctrl array for the position actuators.
 - No `VelocityLimit` — lets IK jump to solution aggressively for fast expert convergence.
 - Not all targets in the configured range are reachable within 400 steps; seed=1 is a known-good target for testing.
+
+**`src/env/pick_and_place_env.py` — `PickAndPlaceEnvironment(Environment)`**
+- Second task: pick up a free-floating `box` body and place it at a mocap `place_target`. `step(action)` terminates when the box-to-target distance < `placement_threshold`.
+- Observation vector: `[qpos, qvel, box_pos(3), place_target_pos(3)]`.
+- `reset()` randomizes both the box's starting `(x, y)` and the placement target's `(x, y)` independently within their configured ranges.
+
+**`src/expert/pick_and_place_expert.py` — `PickAndPlaceExpert(Expert)`**
+- Six-phase state machine (`approach → descend → grasp → transport → lower → release`) driven by `_advance_phase`/`_phase_target`, each phase an IK target for `robot_gripper_static_finger` (not the moving finger — the static pad is the frame that needs to clear the box face) plus a gripper setpoint.
+- `grasp` freezes the descend-phase target instead of tracking the live box position (contact would otherwise make it chase the box), and holds for a fixed `GRASP_HOLD_STEPS` dwell rather than a convergence check, since the box physically blocks the finger from reaching its commanded closed position.
+- Closing is two-stage (`_close_cmd`): free-close to `GRIP_PRECLOSE` first, then advance the setpoint by `GRIP_FOLLOW_DELTA` per step ahead of the measured joint — stepping straight to the closed setpoint slams the finger into the box.
 
 **`src/renderer/renderer.py` — `SceneRenderer`**
 - Context manager; `render_step(action)` returns `(obs, terminated, frames)` where `frames` is a `dict[camera_name → BGR ndarray]`.
