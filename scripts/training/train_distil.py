@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import torch
@@ -87,12 +88,22 @@ def training_step(
 
 
 def train():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=("reach", "pick_and_place"), required=True)
+    args = parser.parse_args()
+
     cfg = load_config()
     d = cfg["distillation"]
+    dt = d["tasks"][args.task]
     t = cfg["training"]
-    logger = Logger(d["log_file"])
+    tt = t["tasks"][args.task]
+    logger = Logger(dt["log_file"])
 
-    wandb.init(project=d["wandb"]["project"], entity=d["wandb"]["entity"], config=d)
+    wandb.init(
+        project=d["wandb"]["project"],
+        entity=d["wandb"]["entity"],
+        config={**d, **dt, "task": args.task},
+    )
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -102,7 +113,7 @@ def train():
         device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    teacher_cfg = d["teacher"]
+    teacher_cfg = dt["teacher"]
     if teacher_cfg["auto_pull"]:
         ensure_checkpoint(
             teacher_cfg["checkpoint"], teacher_cfg["repo_id"], teacher_cfg["filename"]
@@ -112,10 +123,10 @@ def train():
     )
 
     act = ACT(
-        action_dim=t["action_dim"],
+        action_dim=tt["action_dim"],
         embed_dim=t["embed_dim"],
         latent_dim=t["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=tt["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=t["nhead"],
         num_layers=t["num_layers"],
@@ -126,10 +137,10 @@ def train():
     act.eval()
 
     distil_act = ACT(
-        action_dim=t["action_dim"],
+        action_dim=tt["action_dim"],
         embed_dim=d["embed_dim"],
         latent_dim=d["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=tt["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=d["nhead"],
         num_layers=d["num_layers"],
@@ -148,9 +159,10 @@ def train():
     warmup_steps = t["warmup_steps"]
     log_interval = t["log_interval"]
     save_interval = t["save_interval"]
-    checkpoint_dir = d["checkpoint_dir"]
+    checkpoint_dir = dt["checkpoint_dir"]
+    checkpoint_prefix = dt["checkpoint_prefix"]
 
-    train_loader = make_dataloader(cfg)
+    train_loader = make_dataloader(cfg, task=args.task)
 
     optim = torch.optim.AdamW(distil_act.parameters(), lr=lr)
 
@@ -199,20 +211,24 @@ def train():
                             "model": distil_act.state_dict(),
                             "norm_mean": train_loader.dataset.mean,
                             "norm_std": train_loader.dataset.std,
+                            "action_norm_mean": train_loader.dataset.action_mean,
+                            "action_norm_std": train_loader.dataset.action_std,
                         },
-                        f"{checkpoint_dir}/distil_act_model_step_{step}.pt",
+                        f"{checkpoint_dir}/{checkpoint_prefix}_step_{step}.pt",
                     )
                     logger.info(f"Saved model at step {step}")
                 except RuntimeError as e:
                     logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
-    final_path = f"{checkpoint_dir}/distil_act_model_final.pt"
+    final_path = f"{checkpoint_dir}/{checkpoint_prefix}_final.pt"
     try:
         torch.save(
             {
                 "model": distil_act.state_dict(),
                 "norm_mean": train_loader.dataset.mean,
                 "norm_std": train_loader.dataset.std,
+                "action_norm_mean": train_loader.dataset.action_mean,
+                "action_norm_std": train_loader.dataset.action_std,
             },
             final_path,
         )
@@ -220,12 +236,12 @@ def train():
         logger.warning(f"Final model save failed: {e}")
 
     if os.path.exists(final_path):
-        artifact = wandb.Artifact("distil_act_model", type="model")
+        artifact = wandb.Artifact(checkpoint_prefix, type="model")
         artifact.add_file(final_path)
         wandb.log_artifact(artifact)
-        if d["hub"]["auto_push"]:
+        if dt["hub"]["auto_push"]:
             push_checkpoint(
-                final_path, d["hub"]["repo_id"], d["hub"]["filename"], logger
+                final_path, dt["hub"]["repo_id"], dt["hub"]["filename"], logger
             )
     else:
         logger.warning("Final model not saved — skipping wandb artifact and hub push.")

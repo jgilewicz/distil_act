@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import cv2
@@ -5,11 +6,11 @@ import torch
 
 from algorithms.act_policy import ACT
 from algorithms.chunking_buffer import ChunkingBuffer
-from env.reach_env import ReachEnvironment
 from renderer.renderer import SceneRenderer
 from utils.config import load_config
 from utils.hub import ensure_checkpoint
 from utils.logger import Logger
+from utils.tasks import ENV_CLASSES
 
 
 def _render_current(renderer: SceneRenderer, cameras: list[str]) -> dict:
@@ -32,8 +33,12 @@ def _frames_to_tensor(
 
 
 def eval():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=sorted(ENV_CLASSES), required=True)
+    args = parser.parse_args()
+
     cfg = load_config()
-    ev = cfg["eval"]["teacher"]
+    ev = cfg["eval"]["tasks"][args.task]["teacher"]
     logger = Logger(ev["log_file"])
 
     if torch.cuda.is_available():
@@ -50,13 +55,16 @@ def eval():
     checkpoint = torch.load(ev["checkpoint"], map_location=device, weights_only=True)
     norm_mean = checkpoint["norm_mean"].to(device)
     norm_std = checkpoint["norm_std"].to(device)
+    action_mean = checkpoint["action_norm_mean"].to(device)
+    action_std = checkpoint["action_norm_std"].to(device)
 
     t = cfg["training"]
+    task_t = t["tasks"][args.task]
     act = ACT(
-        action_dim=t["action_dim"],
+        action_dim=task_t["action_dim"],
         embed_dim=t["embed_dim"],
         latent_dim=t["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=task_t["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=t["nhead"],
         num_layers=t["num_layers"],
@@ -67,23 +75,16 @@ def eval():
     act.eval()
     logger.info("Model loaded")
 
-    e = cfg["collect"]["tasks"]["reach"]["env"]
-    env = ReachEnvironment(
-        scene_xml_path=e["scene_xml_path"],
-        target_x_range=tuple(e["target_x_range"]),
-        target_y_range=tuple(e["target_y_range"]),
-        target_z_range=tuple(e["target_z_range"]),
-        reach_threshold=e["reach_threshold"],
-        seed=ev["seed"],
-    )
+    e = cfg["collect"]["tasks"][args.task]["env"]
+    env = ENV_CLASSES[args.task](**e, seed=ev["seed"])
 
     r = cfg["renderer"]
-    reach_col = cfg["collect"]["tasks"]["reach"]["collection"]
-    cameras = reach_col["render_cameras"]
+    col = cfg["collect"]["tasks"][args.task]["collection"]
+    cameras = col["render_cameras"]
     chunk_size = t["chunk_size"]
-    max_steps = reach_col["n_steps"]
+    max_steps = col["n_steps"]
 
-    buffer = ChunkingBuffer(chunk_size=chunk_size, action_size=t["action_dim"])
+    buffer = ChunkingBuffer(chunk_size=chunk_size, action_size=task_t["action_dim"])
     query_every = max(1, chunk_size // 5)
 
     video_path = ev["video_path"]
@@ -103,7 +104,7 @@ def eval():
                 break
 
             if step % query_every == 0:
-                qpos = obs[:6]
+                qpos = obs[: task_t["joint_dim"]]
                 qpos_t = (
                     torch.from_numpy(qpos).float().to(device) - norm_mean
                 ) / norm_std
@@ -117,7 +118,7 @@ def eval():
                 buffer.add(pred_norm, step)
 
             action_norm = buffer.get_action(step)
-            action = (action_norm * norm_std + norm_mean).cpu().numpy()
+            action = (action_norm * action_std + action_mean).cpu().numpy()
 
             obs, terminated = env.step(action)
 

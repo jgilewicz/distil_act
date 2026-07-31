@@ -16,6 +16,7 @@ from dataset.dataset_manager import DatasetManager
 from utils.logger import Logger
 from utils.config import load_config
 from utils.hub import push_dataset
+from utils.tasks import ENV_CLASSES
 
 SHOW_VIEWER = os.environ.get("SHOW_VIEWER", "true").lower() != "false"
 
@@ -41,9 +42,9 @@ def _pick_and_place_final_dist(env: PickAndPlaceEnvironment, obs: np.ndarray) ->
 
 
 TASKS: dict[str, TaskSpec] = {
-    "reach": TaskSpec(ReachEnvironment, ReachExpert, _reach_final_dist, "reached"),
+    "reach": TaskSpec(ENV_CLASSES["reach"], ReachExpert, _reach_final_dist, "reached"),
     "pick_and_place": TaskSpec(
-        PickAndPlaceEnvironment,
+        ENV_CLASSES["pick_and_place"],
         PickAndPlaceExpert,
         _pick_and_place_final_dist,
         "placed",

@@ -30,38 +30,38 @@ fix:
 clean:
     rm -rf logs/ data/ src/**/__pycache__ scripts/**/__pycache__ artifacts/ .ruff_cache/ .pytest_cache/
 
-# train the ACT policy
-train:
-    uv run python3 scripts/training/train_act.py
+# train the ACT policy; task = reach | pick_and_place
+train task:
+    uv run python3 scripts/training/train_act.py --task {{task}}
 
-# distill the ACT policy into a smaller student model
-distill:
-    uv run python3 scripts/training/train_distil.py
+# distill the ACT policy into a smaller student model; task = reach | pick_and_place
+distill task:
+    uv run python3 scripts/training/train_distil.py --task {{task}}
 
-# evaluate the trained teacher ACT policy with viewer (macOS requires mjpython)
-eval:
-    uv run mjpython scripts/eval/eval_act.py
+# evaluate the trained teacher ACT policy with viewer (macOS requires mjpython); task = reach | pick_and_place
+eval task:
+    uv run mjpython scripts/eval/eval_act.py --task {{task}}
 
-# evaluate the distilled student policy with viewer (macOS requires mjpython)
-eval-distill:
-    uv run mjpython scripts/eval/eval_distil.py
+# evaluate the distilled student policy with viewer (macOS requires mjpython); task = reach | pick_and_place
+eval-distill task:
+    uv run mjpython scripts/eval/eval_distil.py --task {{task}}
 
 # push collected dataset to Hugging Face Hub (requires huggingface-cli login); task = reach | pick_and_place
 push-data task:
     uv run python3 scripts/hub/push_data_to_hub.py --task {{task}}
 
-# push trained teacher checkpoint to Hugging Face Hub (requires huggingface-cli login)
-push-teacher:
-    uv run python3 scripts/hub/push_teacher_to_hub.py
+# push trained teacher checkpoint to Hugging Face Hub (requires huggingface-cli login); task = reach | pick_and_place
+push-teacher task:
+    uv run python3 scripts/hub/push_teacher_to_hub.py --task {{task}}
 
-# push distilled student checkpoint to Hugging Face Hub (requires huggingface-cli login)
-push-student:
-    uv run python3 scripts/hub/push_student_to_hub.py
+# push distilled student checkpoint to Hugging Face Hub (requires huggingface-cli login); task = reach | pick_and_place
+push-student task:
+    uv run python3 scripts/hub/push_student_to_hub.py --task {{task}}
 
 # compare teacher vs student over 50 episodes each: convergence, success rate, size, VRAM/RAM, inference speed
-# headless comparison, so plain python works (no mjpython / viewer needed)
-measure:
-    uv run python3 scripts/eval/distillation_measure.py
+# headless comparison, so plain python works (no mjpython / viewer needed); task = reach | pick_and_place
+measure task:
+    uv run python3 scripts/eval/distillation_measure.py --task {{task}}
 
 # export the distilled student to ONNX: fp32 (torch.onnx.export) + fp16 (modelopt autocast)
 export-onnx:

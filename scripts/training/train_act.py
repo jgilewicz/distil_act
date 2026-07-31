@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import torch
@@ -53,11 +54,20 @@ def training_step(
 
 
 def train():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=("reach", "pick_and_place"), required=True)
+    args = parser.parse_args()
+
     cfg = load_config()
     t = cfg["training"]
-    logger = Logger(t["log_file"])
+    tt = t["tasks"][args.task]
+    logger = Logger(tt["log_file"])
 
-    wandb.init(project=t["wandb"]["project"], entity=t["wandb"]["entity"], config=t)
+    wandb.init(
+        project=t["wandb"]["project"],
+        entity=t["wandb"]["entity"],
+        config={**t, **tt, "task": args.task},
+    )
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -68,10 +78,10 @@ def train():
     logger.info(f"Using device: {device}")
 
     act = ACT(
-        action_dim=t["action_dim"],
+        action_dim=tt["action_dim"],
         embed_dim=t["embed_dim"],
         latent_dim=t["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=tt["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=t["nhead"],
         num_layers=t["num_layers"],
@@ -85,9 +95,10 @@ def train():
     warmup_steps = t["warmup_steps"]
     log_interval = t["log_interval"]
     save_interval = t["save_interval"]
-    checkpoint_dir = t["checkpoint_dir"]
+    checkpoint_dir = tt["checkpoint_dir"]
+    checkpoint_prefix = tt["checkpoint_prefix"]
 
-    train_loader = make_dataloader(cfg)
+    train_loader = make_dataloader(cfg, task=args.task)
 
     optim = torch.optim.AdamW(act.parameters(), lr=lr)
 
@@ -117,19 +128,22 @@ def train():
             if step % save_interval == 0:
                 try:
                     torch.save(
-                        act.state_dict(), f"{checkpoint_dir}/act_model_step_{step}.pt"
+                        act.state_dict(),
+                        f"{checkpoint_dir}/{checkpoint_prefix}_step_{step}.pt",
                     )
                     logger.info(f"Saved model at step {step}")
                 except RuntimeError as e:
                     logger.warning(f"Checkpoint save failed at step {step}: {e}")
 
-    final_path = f"{checkpoint_dir}/act_model_final.pt"
+    final_path = f"{checkpoint_dir}/{checkpoint_prefix}_final.pt"
     try:
         torch.save(
             {
                 "model": act.state_dict(),
                 "norm_mean": train_loader.dataset.mean,
                 "norm_std": train_loader.dataset.std,
+                "action_norm_mean": train_loader.dataset.action_mean,
+                "action_norm_std": train_loader.dataset.action_std,
             },
             final_path,
         )
@@ -137,12 +151,12 @@ def train():
         logger.warning(f"Final model save failed: {e}")
 
     if os.path.exists(final_path):
-        artifact = wandb.Artifact("act_model", type="model")
+        artifact = wandb.Artifact(checkpoint_prefix, type="model")
         artifact.add_file(final_path)
         wandb.log_artifact(artifact)
-        if t["hub"]["auto_push"]:
+        if tt["hub"]["auto_push"]:
             push_checkpoint(
-                final_path, t["hub"]["repo_id"], t["hub"]["filename"], logger
+                final_path, tt["hub"]["repo_id"], tt["hub"]["filename"], logger
             )
     else:
         logger.warning("Final model not saved — skipping wandb artifact and hub push.")

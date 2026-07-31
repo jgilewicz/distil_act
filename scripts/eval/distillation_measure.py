@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import platform
@@ -11,11 +12,11 @@ import torch
 
 from algorithms.act_policy import ACT
 from algorithms.chunking_buffer import ChunkingBuffer
-from env.reach_env import ReachEnvironment
 from renderer.renderer import SceneRenderer
 from utils.config import load_config
 from utils.hub import ensure_checkpoint
 from utils.logger import Logger
+from utils.tasks import ENV_CLASSES
 
 
 def get_device():
@@ -43,15 +44,22 @@ def frames_to_tensor(frames, cameras, device):
     return torch.stack(imgs).unsqueeze(0).to(device)
 
 
+def _norm_stats(checkpoint, device):
+    return (
+        checkpoint["norm_mean"].to(device),
+        checkpoint["norm_std"].to(device),
+        checkpoint["action_norm_mean"].to(device),
+        checkpoint["action_norm_std"].to(device),
+    )
+
+
 def load_model(checkpoint_path, model_kwargs, device):
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model = ACT(**model_kwargs)
     model.load_state_dict(checkpoint["model"])
     model = model.to(device)
     model.eval()
-    norm_mean = checkpoint["norm_mean"].to(device)
-    norm_std = checkpoint["norm_std"].to(device)
-    return model, norm_mean, norm_std
+    return (model, *_norm_stats(checkpoint, device))
 
 
 class OnnxModel:
@@ -70,11 +78,8 @@ class OnnxModel:
 
 def load_quantized_model(onnx_path, norm_checkpoint, device):
     model = OnnxModel(onnx_path)
-
     checkpoint = torch.load(norm_checkpoint, map_location=device, weights_only=True)
-    norm_mean = checkpoint["norm_mean"].to(device)
-    norm_std = checkpoint["norm_std"].to(device)
-    return model, norm_mean, norm_std
+    return (model, *_norm_stats(checkpoint, device))
 
 
 class TensorRtModel:
@@ -97,34 +102,28 @@ class TensorRtModel:
 
 def load_tensorrt_model(onnx_path, engine_path, norm_checkpoint, device, logger=None):
     model = TensorRtModel(onnx_path, engine_path, logger=logger)
-
     checkpoint = torch.load(norm_checkpoint, map_location=device, weights_only=True)
-    norm_mean = checkpoint["norm_mean"].to(device)
-    norm_std = checkpoint["norm_std"].to(device)
-    return model, norm_mean, norm_std
+    return (model, *_norm_stats(checkpoint, device))
 
 
 def run_episode(
     model,
     norm_mean,
     norm_std,
+    action_mean,
+    action_std,
+    env_cls,
     env_cfg,
     r_cfg,
     cameras,
     chunk_size,
+    joint_dim,
     action_dim,
     max_steps,
     seed,
     device,
 ):
-    env = ReachEnvironment(
-        scene_xml_path=env_cfg["scene_xml_path"],
-        target_x_range=tuple(env_cfg["target_x_range"]),
-        target_y_range=tuple(env_cfg["target_y_range"]),
-        target_z_range=tuple(env_cfg["target_z_range"]),
-        reach_threshold=env_cfg["reach_threshold"],
-        seed=seed,
-    )
+    env = env_cls(**env_cfg, seed=seed)
     buffer = ChunkingBuffer(chunk_size=chunk_size, action_size=action_dim)
     query_every = max(1, chunk_size // 5)
     infer_times = []
@@ -145,7 +144,7 @@ def run_episode(
 
         for step in range(max_steps):
             if step % query_every == 0:
-                qpos = obs[:6]
+                qpos = obs[:joint_dim]
                 qpos_t = (
                     torch.from_numpy(qpos).float().to(device) - norm_mean
                 ) / norm_std
@@ -163,10 +162,10 @@ def run_episode(
                 buffer.add(pred_norm, step)
 
             action_norm = buffer.get_action(step)
-            action = (action_norm * norm_std + norm_mean).cpu().numpy()
+            action = (action_norm * action_std + action_mean).cpu().numpy()
             obs, terminated = env.step(action)
 
-            joints.append(env.data.qpos[:6].copy())
+            joints.append(env.data.qpos.copy())
             ee_pos.append(env.data.xpos[env.ee_id].copy())
 
             frames = render_current(renderer, cameras)
@@ -188,8 +187,10 @@ def measure_model(
     checkpoint_path,
     model_kwargs,
     chunk_size,
+    joint_dim,
     action_dim,
     cfg,
+    task,
     device,
     logger,
     quantized=False,
@@ -202,25 +203,28 @@ def measure_model(
     ram_before_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / _rss_divisor
 
     if engine_path is not None:
-        model, norm_mean, norm_std = load_tensorrt_model(
+        model, norm_mean, norm_std, action_mean, action_std = load_tensorrt_model(
             checkpoint_path, engine_path, norm_checkpoint, device, logger=logger
         )
         size_path = engine_path
     elif quantized:
-        model, norm_mean, norm_std = load_quantized_model(
+        model, norm_mean, norm_std, action_mean, action_std = load_quantized_model(
             checkpoint_path, norm_checkpoint, device
         )
         size_path = checkpoint_path
     else:
-        model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
+        model, norm_mean, norm_std, action_mean, action_std = load_model(
+            checkpoint_path, model_kwargs, device
+        )
         size_path = checkpoint_path
 
-    reach_cfg = cfg["collect"]["tasks"]["reach"]
-    env_cfg = reach_cfg["env"]
+    task_cfg = cfg["collect"]["tasks"][task]
+    env_cls = ENV_CLASSES[task]
+    env_cfg = task_cfg["env"]
     r_cfg = cfg["renderer"]
-    cameras = reach_cfg["collection"]["render_cameras"]
-    max_steps = reach_cfg["collection"]["n_steps"]
-    n_episodes = cfg["eval"]["measure"]["n_episodes"]
+    cameras = task_cfg["collection"]["render_cameras"]
+    max_steps = task_cfg["collection"]["n_steps"]
+    n_episodes = cfg["eval"]["tasks"][task]["measure"]["n_episodes"]
 
     successes = 0
     sim_times = []
@@ -234,10 +238,14 @@ def measure_model(
                 model,
                 norm_mean,
                 norm_std,
+                action_mean,
+                action_std,
+                env_cls,
                 env_cfg,
                 r_cfg,
                 cameras,
                 chunk_size,
+                joint_dim,
                 action_dim,
                 max_steps,
                 seed,
@@ -285,16 +293,22 @@ def measure_model(
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=sorted(ENV_CLASSES), required=True)
+    args = parser.parse_args()
+    task = args.task
+
     cfg = load_config()
-    m = cfg["eval"]["measure"]
+    m = cfg["eval"]["tasks"][task]["measure"]
     logger = Logger(m["log_file"])
     device = get_device()
     logger.info(f"Using device: {device}")
 
-    teacher_ev = cfg["eval"]["teacher"]
-    student_ev = cfg["eval"]["student"]
+    teacher_ev = cfg["eval"]["tasks"][task]["teacher"]
+    student_ev = cfg["eval"]["tasks"][task]["student"]
     t = cfg["training"]
     d = cfg["distillation"]
+    task_t = t["tasks"][task]
 
     if teacher_ev["auto_pull"]:
         ensure_checkpoint(
@@ -306,20 +320,20 @@ def main():
         )
 
     teacher_kwargs = dict(
-        action_dim=t["action_dim"],
+        action_dim=task_t["action_dim"],
         embed_dim=t["embed_dim"],
         latent_dim=t["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=task_t["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=t["nhead"],
         num_layers=t["num_layers"],
         num_cameras=t["num_cameras"],
     )
     student_kwargs = dict(
-        action_dim=t["action_dim"],
+        action_dim=task_t["action_dim"],
         embed_dim=d["embed_dim"],
         latent_dim=d["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=task_t["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=d["nhead"],
         num_layers=d["num_layers"],
@@ -333,8 +347,10 @@ def main():
         teacher_ev["checkpoint"],
         teacher_kwargs,
         t["chunk_size"],
-        t["action_dim"],
+        task_t["joint_dim"],
+        task_t["action_dim"],
         cfg,
+        task,
         device,
         logger,
     )
@@ -343,57 +359,72 @@ def main():
         student_ev["checkpoint"],
         student_kwargs,
         t["chunk_size"],
-        t["action_dim"],
+        task_t["joint_dim"],
+        task_t["action_dim"],
         cfg,
+        task,
         device,
         logger,
     )
 
-    quantized_variants = {
-        "student_ptq": cfg["ptq"]["output_path"],
-        "student_dyn": cfg["ptq"]["dyn_path"],
-        "student_fp16_onnx": cfg["ptq"]["fp16_path"],
-    }
-    quantized_metrics = {}
-    for name, onnx_path in quantized_variants.items():
-        quantized_metrics[name] = measure_model(
-            name,
-            onnx_path,
-            student_kwargs,
-            t["chunk_size"],
-            t["action_dim"],
-            cfg,
-            torch.device("cpu"),
-            logger,
-            quantized=True,
-            norm_checkpoint=student_ev["checkpoint"],
-        )
-
-    trt_variants = {
-        "student_trt_fp32": (cfg["ptq"]["fp32_path"], cfg["ptq"]["engine_fp32_path"]),
-        "student_trt_fp16": (cfg["ptq"]["fp16_path"], cfg["ptq"]["engine_fp16_path"]),
-    }
-    trt_metrics = {}
-    for name, (onnx_path, engine_path) in trt_variants.items():
-        trt_metrics[name] = measure_model(
-            name,
-            onnx_path,
-            student_kwargs,
-            t["chunk_size"],
-            t["action_dim"],
-            cfg,
-            torch.device("cpu"),
-            logger,
-            norm_checkpoint=student_ev["checkpoint"],
-            engine_path=engine_path,
-        )
-
     results = {
         "teacher": teacher_metrics,
         "student": student_metrics,
-        **quantized_metrics,
-        **trt_metrics,
     }
+
+    if task == "reach":
+        quantized_variants = {
+            "student_ptq": cfg["ptq"]["output_path"],
+            "student_dyn": cfg["ptq"]["dyn_path"],
+            "student_fp16_onnx": cfg["ptq"]["fp16_path"],
+        }
+        for name, onnx_path in quantized_variants.items():
+            results[name] = measure_model(
+                name,
+                onnx_path,
+                student_kwargs,
+                t["chunk_size"],
+                task_t["joint_dim"],
+                task_t["action_dim"],
+                cfg,
+                task,
+                torch.device("cpu"),
+                logger,
+                quantized=True,
+                norm_checkpoint=student_ev["checkpoint"],
+            )
+
+        trt_variants = {
+            "student_trt_fp32": (
+                cfg["ptq"]["fp32_path"],
+                cfg["ptq"]["engine_fp32_path"],
+            ),
+            "student_trt_fp16": (
+                cfg["ptq"]["fp16_path"],
+                cfg["ptq"]["engine_fp16_path"],
+            ),
+        }
+        for name, (onnx_path, engine_path) in trt_variants.items():
+            results[name] = measure_model(
+                name,
+                onnx_path,
+                student_kwargs,
+                t["chunk_size"],
+                task_t["joint_dim"],
+                task_t["action_dim"],
+                cfg,
+                task,
+                torch.device("cpu"),
+                logger,
+                norm_checkpoint=student_ev["checkpoint"],
+                engine_path=engine_path,
+            )
+    else:
+        logger.info(
+            f"Skipping quantized/TensorRT variants for task={task} — "
+            "the ONNX export/PTQ pipeline (config/quant.yaml) is reach-only."
+        )
+
     os.makedirs(os.path.dirname(m["output_path"]), exist_ok=True)
     with open(m["output_path"], "w") as f:
         json.dump(results, f, indent=2)

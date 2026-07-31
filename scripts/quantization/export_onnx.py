@@ -16,7 +16,7 @@ device = torch.device("cuda")
 
 def main():
     cfg = load_config()
-    ev = cfg["eval"]["student"]
+    ev = cfg["eval"]["tasks"]["reach"]["student"]
     ptq = cfg["ptq"]
     logger = Logger(ptq["export_log_file"])
 
@@ -29,11 +29,12 @@ def main():
 
     t = cfg["training"]
     d = cfg["distillation"]
+    reach_t = t["tasks"]["reach"]
     act = ACT(
-        action_dim=t["action_dim"],
+        action_dim=reach_t["action_dim"],
         embed_dim=d["embed_dim"],
         latent_dim=d["latent_dim"],
-        joint_dim=t["joint_dim"],
+        joint_dim=reach_t["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=d["nhead"],
         num_layers=d["num_layers"],

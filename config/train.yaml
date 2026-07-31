@@ -1,10 +1,16 @@
-# Teacher ACT training (scripts/train_act.py).
+# Teacher ACT training (scripts/training/train_act.py --task <task>).
+# action_dim/joint_dim/checkpoint/hub/log_file are task-specific (the two tasks
+# record different qpos dims — reach: 6 robot joints; pick_and_place: 6 robot
+# joints + 7 box freejoint). joint_dim is the full recorded qpos (context input);
+# action_dim/action_qpos_offset select the robot-only slice of that same qpos
+# that the model actually predicts and that gets sent to env.step() as ctrl —
+# for pick_and_place the box's 7-dof freejoint occupies qpos[0:7], so the robot
+# slice is qpos[7:13]. Everything else is architecture/optimizer config shared
+# across tasks.
 
 training:
-  action_dim: 6
   embed_dim: 256
   latent_dim: 128
-  joint_dim: 6
   nhead: 8
   num_layers: 4
   num_cameras: 2
@@ -19,14 +25,33 @@ training:
   save_interval: 10000
   lr: 0.00015
 
-  log_file: "logs/training.log"
-  checkpoint_dir: "artifacts"
-
   wandb:
     project: "distil_act"
     entity: "jg_projects"
 
-  hub:
-    repo_id: "jgilewicz/distil_act_teacher"
-    filename: "act_model_final.pt"
-    auto_push: false  
+  tasks:
+    reach:
+      action_dim: 6
+      joint_dim: 6
+      action_qpos_offset: 0
+      log_file: "logs/training_reach.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "act_model"
+
+      hub:
+        repo_id: "jgilewicz/distil_act_teacher"
+        filename: "act_model_final.pt"
+        auto_push: false
+
+    pick_and_place:
+      action_dim: 6
+      joint_dim: 13
+      action_qpos_offset: 7
+      log_file: "logs/training_pick_and_place.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "pick_and_place_model"
+
+      hub:
+        repo_id: "jgilewicz/distil_act_pick_and_place_teacher"
+        filename: "pick_and_place_model_final.pt"
+        auto_push: false
