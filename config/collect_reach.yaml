@@ -3,7 +3,7 @@
 collection:
   n_episodes: 200
   n_steps: 1000
-  dataset_dir: "data/reach"
+  dataset_dir: "data/pick_and_place"
   log_file: "logs/data_gathering.log"
   render_cameras:
     - "overhead_cam"

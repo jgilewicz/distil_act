@@ -25,7 +25,6 @@ def collect_episode(
 ) -> tuple[float, bool]:
     obs = env.reset()
 
-
     recorder = dataset.create_new_episode()
     terminated = False
     try:

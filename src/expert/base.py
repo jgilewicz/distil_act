@@ -11,6 +11,7 @@ _JOINT_NAMES = [
     "robot_gripper",
 ]
 
+
 class Expert(ABC):
     @abstractmethod
     def compute_action(self, obs: np.ndarray) -> np.ndarray: ...
