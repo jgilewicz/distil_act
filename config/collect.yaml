@@ -1,0 +1,63 @@
+# Per-task env/expert/collection config for scripts/collection/collect_data.py.
+# Same key names (env/expert/collection) under each task so collection is a
+# single script switched by `--task {reach,pick_and_place}`.
+
+collect:
+  tasks:
+    reach:
+      env:
+        scene_xml_path: "models/reach_scene.xml"
+        target_x_range: [0.0, 0.13]
+        target_y_range: [0.08, 0.20]
+        target_z_range: [0.10, 0.20]
+        reach_threshold: 0.04
+
+      expert:
+        dt: 0.01
+        solver: "daqp"
+        max_iters: 10
+        ik_pos_threshold: 0.005
+
+      collection:
+        n_episodes: 200
+        n_steps: 1000
+        dataset_dir: "data/reach"
+        log_file: "logs/reach_data_gathering.log"
+        render_cameras:
+          - "overhead_cam"
+          - "ego_cam"
+
+        hub:
+          repo_id: "jgilewicz/act_reach_env"
+          auto_pull: true
+          auto_push: false
+
+    pick_and_place:
+      env:
+        scene_xml_path: "models/pick_and_place_scene.xml"
+        box_x_range: [-0.10, -0.06]
+        box_y_range: [0.13, 0.15]
+        placement_x_range: [0.06, 0.10]
+        placement_y_range: [0.13, 0.15]
+        box_height: 0.01
+        placement_threshold: 0.012
+
+      expert:
+        dt: 0.01
+        solver: "daqp"
+        max_iters: 10
+        ik_pos_threshold: 0.05
+
+      collection:
+        n_episodes: 200
+        n_steps: 2500
+        dataset_dir: "data/pick_and_place"
+        log_file: "logs/pick_and_place_data_gathering.log"
+        render_cameras:
+          - "overhead_cam"
+          - "ego_cam"
+
+        hub:
+          repo_id: "jgilewicz/pick_and_place_data"
+          auto_pull: false
+          auto_push: false

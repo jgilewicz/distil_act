@@ -11,7 +11,7 @@ from utils.hub import ensure_dataset
 
 class EpisodeDataset(Dataset):
     def __init__(self, cfg: dict, split: str = "train") -> None:
-        col = cfg["collection"]
+        col = cfg["collect"]["tasks"]["reach"]["collection"]
         dataset_dir = col["dataset_dir"]
         chunk_size = cfg["training"]["chunk_size"]
         val_ratio = cfg["training"]["val_ratio"]

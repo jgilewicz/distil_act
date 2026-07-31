@@ -5,21 +5,13 @@ default:
 sync:
     uv sync
 
-# collect reach expert demonstrations with viewer (macOS requires mjpython)
-collect:
-    uv run scripts/collection/collect_reach_data.py
+# collect expert demonstrations with viewer (macOS requires mjpython); task = reach | pick_and_place
+collect task:
+    uv run scripts/collection/collect_data.py --task {{task}}
 
-# collect reach expert demonstrations headless (no viewer window)
-collect-headless:
-    MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_reach_data.py
-
-# collect pick-and-place expert demonstrations with viewer (macOS requires mjpython)
-collect-pick-and-place:
-    uv run scripts/collection/collect_pick_and_place_data.py
-
-# collect pick-and-place expert demonstrations headless (no viewer window)
-collect-pick-and-place-headless:
-    MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_pick_and_place_data.py
+# collect expert demonstrations headless (no viewer window); task = reach | pick_and_place
+collect-headless task:
+    MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py --task {{task}}
 
 # run test suite
 test:
@@ -54,9 +46,9 @@ eval:
 eval-distill:
     uv run mjpython scripts/eval/eval_distil.py
 
-# push collected dataset to Hugging Face Hub (requires huggingface-cli login)
-push-data:
-    uv run python3 scripts/hub/push_data_to_hub.py
+# push collected dataset to Hugging Face Hub (requires huggingface-cli login); task = reach | pick_and_place
+push-data task:
+    uv run python3 scripts/hub/push_data_to_hub.py --task {{task}}
 
 # push trained teacher checkpoint to Hugging Face Hub (requires huggingface-cli login)
 push-teacher:

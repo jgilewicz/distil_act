@@ -6,36 +6,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ACT Distillation — distilling an ACT (Action Chunking Transformer) visuomotor policy from a simulation-trained teacher to a compressed student for edge deployment.
 
-Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses). Phase 4 adds post-training quantization of the distilled student via ONNX Runtime (static QDQ int8 + dynamic weight-only int8), exported to ONNX and benchmarked against the fp32 teacher/student in `distillation_measure.py`. A second task, pick-and-place (box pickup + placement), has been added at the env/expert layer alongside reach — demonstration collection is wired up (`just collect-pick-and-place[-headless]`); training/distillation/eval still run against the reach task only.
+Phase 2 is complete: expert demonstrations collected via IK, ACT trained with CVAE + temporal ensembling, evaluated in the MuJoCo reach environment. Phase 3 adds distillation of the teacher ACT into a smaller student (MobileNetV3 backbone, distillation KL + hard/soft action losses). Phase 4 adds post-training quantization of the distilled student via ONNX Runtime (static QDQ int8 + dynamic weight-only int8), exported to ONNX and benchmarked against the fp32 teacher/student in `distillation_measure.py`. A second task, pick-and-place (box pickup + placement), has been added at the env/expert layer alongside reach — demonstration collection is wired up (`just collect[-headless] pick_and_place`); training/distillation/eval still run against the reach task only.
 
 ## Commands
 
 ```bash
-uv sync                  # install / sync dependencies
-just                     # list all available tasks
-just collect             # collect reach demos with viewer (macOS: uses mjpython)
-just collect-headless    # collect reach demos headless
-just collect-pick-and-place            # collect pick-and-place demos with viewer (macOS: uses mjpython)
-just collect-pick-and-place-headless   # collect pick-and-place demos headless
-just train               # train teacher ACT policy
-just distill             # distill the teacher into a smaller student
-just eval                # run the trained teacher with viewer (macOS: uses mjpython)
-just eval-distill        # run the distilled student with viewer (macOS: uses mjpython)
-just export-onnx         # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast)
-just ptq                 # post-training quantization (ONNX Runtime): static + dynamic int8 student, from the exported fp32 ONNX
-just measure             # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
-just push-data           # push collected dataset to the Hub
-just push-teacher        # push teacher checkpoint to the Hub
-just push-student        # push student checkpoint to the Hub
-just test                # run test suite (pytest)
-just lint                # ruff check
-just fix                 # ruff check --fix + ruff format
-just clean               # remove generated logs, dataset, and pycache
+uv sync                          # install / sync dependencies
+just                              # list all available tasks
+just collect <task>               # collect demos with viewer (macOS: uses mjpython); task = reach | pick_and_place
+just collect-headless <task>      # collect demos headless; task = reach | pick_and_place
+just train                        # train teacher ACT policy
+just distill                      # distill the teacher into a smaller student
+just eval                         # run the trained teacher with viewer (macOS: uses mjpython)
+just eval-distill                 # run the distilled student with viewer (macOS: uses mjpython)
+just export-onnx                  # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast)
+just ptq                          # post-training quantization (ONNX Runtime): static + dynamic int8 student, from the exported fp32 ONNX
+just measure                      # compare teacher, student, and quantized variants: success rate, latency, size, VRAM/RAM
+just push-data <task>             # push collected dataset to the Hub; task = reach | pick_and_place
+just push-teacher                 # push teacher checkpoint to the Hub
+just push-student                 # push student checkpoint to the Hub
+just test                         # run test suite (pytest)
+just lint                         # ruff check
+just fix                          # ruff check --fix + ruff format
+just clean                        # remove generated logs, dataset, and pycache
 ```
 
 On macOS, anything that calls `mujoco.viewer.launch_passive` must run under `mjpython`. The justfile handles this — `just collect` and `just eval` use `uv run mjpython`. `just measure` is headless (no viewer), so it runs under plain `python3` and works cross-platform.
 
-All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`env`, `expert`, `renderer`, `collection`, `training`, `distillation`, `eval`, `ptq`, `pick_and_place_env`, `pick_and_place_expert`, `pick_and_place_collection`) — split into separate files (`simulation.yaml`, `collect_reach.yaml`, `collect_pick_and_place.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `quant.yaml` holds the top-level `ptq` section; `collect_pick_and_place.yaml` holds the pick-and-place env/expert/collection sections, kept separate from `simulation.yaml`/`collect_reach.yaml` since the two tasks take different kwargs. No hardcoded constants in source files.
+All configuration lives in `config/*.yaml`. `load_config()` (`src/utils/config.py`) merges every YAML file in `config/` into a single dict keyed by top-level section (`collect`, `renderer`, `training`, `distillation`, `eval`, `ptq`) — split into separate files (`collect.yaml`, `simulation.yaml`, `train.yaml`, `distill.yaml`, `eval.yaml`, `quant.yaml`) purely for navigability, not namespacing. `collect.yaml` holds `collect.tasks.<reach|pick_and_place>`, each with identically-shaped `env`/`expert`/`collection` sub-sections — the two tasks take different kwargs, so they're separate blocks under the same key names rather than separate top-level keys, and `scripts/collection/collect_data.py --task <task>` / `scripts/hub/push_data_to_hub.py --task <task>` switch between them. `simulation.yaml` holds only `renderer` (shared, task-independent). `quant.yaml` holds the top-level `ptq` section. No hardcoded constants in source files.
 
 Each stage's Hub interaction (dataset/checkpoint download and upload) is config-driven, not a separate manual step: every stage config carries a `hub` block with `repo_id`/`filename` plus `auto_pull` (download if the local file/dir is missing — via `src/utils/hub.py`) and `auto_push` (upload once the stage finishes). The dedicated `push-*` scripts/just recipes remain for pushing on demand (e.g. re-pushing without retraining).
 

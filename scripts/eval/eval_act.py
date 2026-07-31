@@ -67,7 +67,7 @@ def eval():
     act.eval()
     logger.info("Model loaded")
 
-    e = cfg["env"]
+    e = cfg["collect"]["tasks"]["reach"]["env"]
     env = ReachEnvironment(
         scene_xml_path=e["scene_xml_path"],
         target_x_range=tuple(e["target_x_range"]),
@@ -78,9 +78,10 @@ def eval():
     )
 
     r = cfg["renderer"]
-    cameras = cfg["collection"]["render_cameras"]
+    reach_col = cfg["collect"]["tasks"]["reach"]["collection"]
+    cameras = reach_col["render_cameras"]
     chunk_size = t["chunk_size"]
-    max_steps = cfg["collection"]["n_steps"]
+    max_steps = reach_col["n_steps"]
 
     buffer = ChunkingBuffer(chunk_size=chunk_size, action_size=t["action_dim"])
     query_every = max(1, chunk_size // 5)

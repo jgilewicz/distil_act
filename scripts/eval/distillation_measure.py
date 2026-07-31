@@ -215,10 +215,11 @@ def measure_model(
         model, norm_mean, norm_std = load_model(checkpoint_path, model_kwargs, device)
         size_path = checkpoint_path
 
-    env_cfg = cfg["env"]
+    reach_cfg = cfg["collect"]["tasks"]["reach"]
+    env_cfg = reach_cfg["env"]
     r_cfg = cfg["renderer"]
-    cameras = cfg["collection"]["render_cameras"]
-    max_steps = cfg["collection"]["n_steps"]
+    cameras = reach_cfg["collection"]["render_cameras"]
+    max_steps = reach_cfg["collection"]["n_steps"]
     n_episodes = cfg["eval"]["measure"]["n_episodes"]
 
     successes = 0
