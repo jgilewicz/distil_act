@@ -3,6 +3,7 @@ default:
 
 # install / sync all dependencies
 sync:
+    rm -rf curobo/
     uv sync
 
 # collect expert demonstrations with viewer (macOS requires mjpython); task = reach | pick_and_place

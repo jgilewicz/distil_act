@@ -1,5 +1,6 @@
 # dependencies
 .venv/
+curobo/
 
 # generated data & logs
 data/
@@ -22,6 +23,7 @@ dist/
 
 # Artifacts
 artifacts/
+models/config.yaml
 
 # Claude 
 .claude/

@@ -1,5 +1,5 @@
 import mujoco
-from robot_descriptions import low_cost_robot_arm_mj_description
+from robot_descriptions import piper_mj_description
 import numpy as np
 
 from env.base import Environment
@@ -7,13 +7,15 @@ from env.base import Environment
 
 def build_model(scene_xml_path: str) -> mujoco.MjModel:
     scene_spec = mujoco.MjSpec.from_file(scene_xml_path)
-    robot_spec = mujoco.MjSpec.from_file(low_cost_robot_arm_mj_description.MJCF_PATH)
+    robot_spec = mujoco.MjSpec.from_file(piper_mj_description.MJCF_PATH)
 
     attach_frame = scene_spec.worldbody.add_frame()
     attach_frame.attach_body(robot_spec.worldbody.first_body(), prefix="robot_")
 
+    # link6 is the wrist link just before the gripper fingers - stable
+    # reference point that doesn't move as the gripper opens/closes
     gripper_body = next(
-        (b for b in scene_spec.bodies if b.name == "robot_gripper_static_finger"), None
+        (b for b in scene_spec.bodies if b.name == "robot_link6"), None
     )
 
     if gripper_body is not None:
@@ -41,11 +43,11 @@ class ReachEnvironment(Environment):
     def __init__(
         self,
         scene_xml_path: str = "models/reach_scene.xml",
-        target_x_range: tuple[float, float] = (0.0, 0.13),
-        target_y_range: tuple[float, float] = (0.08, 0.20),
+        target_x_range: tuple[float, float] = (0.12, 0.28),
+        target_y_range: tuple[float, float] = (-0.15, 0.15),
         target_z_range: tuple[float, float] = (0.10, 0.20),
         reach_threshold: float = 1e-1,
-        ee_body_name: str = "robot_gripper_moving_finger",
+        ee_body_name: str = "robot_link6",
         seed: int = 0,
     ) -> None:
         self.model = build_model(scene_xml_path)

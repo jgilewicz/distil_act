@@ -90,16 +90,16 @@ distil_act_model_final.pt ──> export_onnx.py ──> distil_act_model_32.onn
 - Abstract base class with `reset() -> np.ndarray` and `step(action) -> (obs, terminated)`.
 
 **`src/env/reach_env.py` — `ReachEnvironment(Environment)`**
-- Merges `models/reach_scene.xml` with the `low_cost_robot_arm` MJCF from `robot_descriptions` at runtime; attaches an `ego_cam` to `robot_gripper_static_finger`.
-- All robot bodies/joints/actuators are prefixed `robot_` after merging.
+- Merges `models/reach_scene.xml` with the `piper` (AgileX PiPER) MJCF from `robot_descriptions` at runtime; attaches an `ego_cam` to `robot_link6` (the wrist link just before the gripper fingers — stable regardless of gripper state, unlike the old arm's static/moving finger split).
+- All robot bodies/joints/actuators are prefixed `robot_` after merging. PiPER has 8 qpos dims (`joint1`–`joint6` arm + `joint7`/`joint8` gripper fingers) but only 7 actuators (`nu=7`) — `joint8` mirrors `joint7` via an MJCF equality constraint and has no actuator of its own.
 - `step(action)` returns `(obs, terminated)` — terminated when EE distance < `placement_threshold`.
-- Observation vector: `[qpos(6), qvel(6), ee_pos(3), target_pos(3)]`. Target is a mocap body.
+- Observation vector: `[qpos(8), qvel(8), ee_pos(3), target_pos(3)]`. Target is a mocap body.
 
 **`src/expert/reach_expert.py` — `ReachExpert`**
-- Uses `mink` (IK library) with `daqp` solver and `mink.FrameTask` on `robot_gripper_moving_finger` (`frame_type="body"` — robot has no sites).
-- Each `compute_action(obs)` call syncs mink config from live `data.qpos`, runs up to `max_iters` IK iterations (early-exit at `ik_pos_threshold`), returns a ctrl array for the position actuators.
-- No `VelocityLimit` — lets IK jump to solution aggressively for fast expert convergence.
-- Not all targets in the configured range are reachable within 400 steps; seed=1 is a known-good target for testing.
+- Uses NVIDIA `curobo` (`InverseKinematics`) against `models/piper.urdf` — a URDF converted from the PiPER MJCF via `mjcf_urdf_simple_converter`, since curobo needs a URDF rather than MJCF. Tool frame is `link6`, passed explicitly to `RobotBuilder` (the converted URDF's gripper joints collapse to fixed, leaving `link7`/`link8` as ambiguous leaves otherwise).
+- On first run (`models/config.yaml` missing), fits collision spheres and a self-collision matrix via `RobotBuilder`, then caches the built robot config to `models/config.yaml` — subsequent runs load it directly.
+- `Pose(position=...)` leaves `quaternion` unset, which curobo defaults to identity — not PiPER's actual `link6` rest orientation. `compute_action` zeroes the rotation axes via `ToolPoseCriteria` (`terminal_pose_axes_weight_factor=[1,1,1,0,0,0]`) so the solve is true position-only IK; without this the optimizer fights an unreachable combined pose and never converges.
+- Logs a warning (not a silent fallback) via `result.success`/`result.position_error` when curobo fails to converge.
 
 **`src/env/pick_and_place_env.py` — `PickAndPlaceEnvironment(Environment)`**
 - Second task: pick up a free-floating `box` body and place it at a mocap `place_target`. `step(action)` terminates when the box-to-target distance < `placement_threshold`.
@@ -107,9 +107,7 @@ distil_act_model_final.pt ──> export_onnx.py ──> distil_act_model_32.onn
 - `reset()` randomizes both the box's starting `(x, y)` and the placement target's `(x, y)` independently within their configured ranges.
 
 **`src/expert/pick_and_place_expert.py` — `PickAndPlaceExpert(Expert)`**
-- Six-phase state machine (`approach → descend → grasp → transport → lower → release`) driven by `_advance_phase`/`_phase_target`, each phase an IK target for `robot_gripper_static_finger` (not the moving finger — the static pad is the frame that needs to clear the box face) plus a gripper setpoint.
-- `grasp` freezes the descend-phase target instead of tracking the live box position (contact would otherwise make it chase the box), and holds for a fixed `GRASP_HOLD_STEPS` dwell rather than a convergence check, since the box physically blocks the finger from reaching its commanded closed position.
-- Closing is two-stage (`_close_cmd`): free-close to `GRIP_PRECLOSE` first, then advance the setpoint by `GRIP_FOLLOW_DELTA` per step ahead of the measured joint — stepping straight to the closed setpoint slams the finger into the box.
+- Currently a stub: `compute_action` raises `NotImplementedError`. The previous `mink`-based six-phase grasp state machine (`approach → descend → grasp → transport → lower → release`) was removed during the migration to `curobo` (see `ReachExpert`) and hasn't been reimplemented yet — `just collect pick_and_place` will not work until this is done.
 
 **`src/renderer/renderer.py` — `SceneRenderer`**
 - Context manager; `render_step(action)` returns `(obs, terminated, frames)` where `frames` is a `dict[camera_name → BGR ndarray]`.

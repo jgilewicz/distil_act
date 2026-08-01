@@ -2,12 +2,12 @@
 
 A research project exploring in-simulation imitation learning and policy distillation. A scripted expert collects demonstrations in MuJoCo, an ACT teacher is trained via behaviour cloning, and a smaller student is distilled from it for edge deployment — all within a single, config-driven pipeline.
 
-The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement — carries over to any new task without modification. A second task, pick-and-place (box pickup + placement, `src/env/pick_and_place_env.py` + `src/expert/pick_and_place_expert.py`), follows this same pattern and is fully wired up end to end (`just collect/train/distill/eval[-distill]/measure pick_and_place`); only quantization (`export_onnx.py`/`ptq.py`) remains reach-only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
+The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement — carries over to any new task without modification. A second task, pick-and-place (box pickup + placement, `src/env/pick_and_place_env.py` + `src/expert/pick_and_place_expert.py`), follows this same pattern. The rest of the pipeline (`just train/distill/eval[-distill]/measure pick_and_place`) is wired up, but `PickAndPlaceExpert` is currently a stub (`compute_action` raises `NotImplementedError`) pending migration to the new IK backend, so `just collect pick_and_place` doesn't work yet. Quantization (`export_onnx.py`/`ptq.py`) remains reach-only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
 
 ## Stack
 
-- **Simulation** — MuJoCo 3 + `low_cost_robot_arm` via `robot_descriptions`
-- **IK** — `mink` with `daqp` solver
+- **Simulation** — MuJoCo 3 + `piper` (AgileX PiPER, 6-DOF arm + gripper) via `robot_descriptions`
+- **IK** — NVIDIA `curobo`, position-only tool-frame IK against `models/piper.urdf` (reach only — pick-and-place's expert is currently unimplemented)
 - **Dataset** — HDF5 (`h5py`), multi-camera frames + joints + timestamps per episode; hosted on the Hugging Face Hub
 - **Teacher policy** — ACT in PyTorch; EfficientNet-B3 image backbone, CVAE encoder, Transformer encoder-decoder
 - **Student policy** — same ACT architecture, smaller dims + MobileNetV3-Large backbone; trained with a hard action loss, a soft loss against the teacher's predictions, and a latent-space distillation KL
@@ -292,7 +292,7 @@ With those in place, `just collect/train/distill/eval[-distill]/measure <your_ta
 ```
 src/
   env/              # MuJoCo reach + pick-and-place environments
-  expert/           # IK-based scripted experts (mink) + abstract base
+  expert/           # IK-based scripted experts (curobo for reach; pick-and-place unimplemented) + abstract base
   renderer/         # off-screen rendering + passive viewer
   dataset/          # HDF5 episode recording + PyTorch dataset/dataloader
   algorithms/       # ACT policy, ImageEmbedding, ChunkingBuffer
@@ -318,6 +318,8 @@ scripts/
 models/
   reach_scene.xml
   pick_and_place_scene.xml
+  piper.urdf        # AgileX PiPER kinematics, converted from the robot_descriptions MJCF - curobo IK input
+  meshes/            # piper.urdf mesh assets
 tests/
 config/
   collect.yaml      # per-task (reach, pick_and_place) env, expert, collection

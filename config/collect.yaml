@@ -7,16 +7,23 @@ collect:
     reach:
       env:
         scene_xml_path: "models/reach_scene.xml"
-        target_x_range: [0.0, 0.13]
-        target_y_range: [0.08, 0.20]
+        target_x_range: [0.12, 0.28]
+        target_y_range: [-0.15, 0.15]
         target_z_range: [0.10, 0.20]
-        reach_threshold: 0.04
+        reach_threshold: 0.025
 
       expert:
-        dt: 0.01
-        solver: "daqp"
-        max_iters: 10
-        ik_pos_threshold: 0.005
+        urdf_path: "models/piper.urdf"
+        asset_path: "models"
+        config_path: "models/config.yaml"
+        sphere_density: 1.0
+        coverage_weight: 1000.0
+        protrusion_weight: 10.0
+        compute_metrics: false
+        prune_collisions: true
+        num_collision_samples: 100
+        num_seeds: 32
+        device: "cuda"
 
       collection:
         n_episodes: 200
@@ -42,11 +49,7 @@ collect:
         box_height: 0.01
         placement_threshold: 0.012
 
-      expert:
-        dt: 0.01
-        solver: "daqp"
-        max_iters: 10
-        ik_pos_threshold: 0.05
+      expert: {}
 
       collection:
         n_episodes: 200

@@ -3,12 +3,13 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 _JOINT_NAMES = [
-    "robot_base_rotation",
-    "robot_pitch",
-    "robot_elbow",
-    "robot_wrist_pitch",
-    "robot_wrist_roll",
-    "robot_gripper",
+    "robot_joint1",
+    "robot_joint2",
+    "robot_joint3",
+    "robot_joint4",
+    "robot_joint5",
+    "robot_joint6",
+    "robot_joint7",
 ]
 
 
