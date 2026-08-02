@@ -6,10 +6,10 @@ from typing import Callable
 import numpy as np
 
 from env.base import Environment
-from env.pick_and_place_env import PickAndPlaceEnvironment
+from env.pick_env import PickEnvironment
 from env.reach_env import ReachEnvironment
 from expert.base import Expert
-from expert.pick_and_place_expert import PickAndPlaceExpert
+from expert.pick_expert import PickExpert
 from expert.reach_expert import ReachExpert
 from renderer.renderer import SceneRenderer
 from dataset.dataset_manager import DatasetManager
@@ -33,21 +33,18 @@ def _reach_final_dist(env: ReachEnvironment, obs: np.ndarray) -> float:
     return float(np.linalg.norm(env.data.xpos[env.ee_id] - obs[-3:]))
 
 
-def _pick_and_place_final_dist(env: PickAndPlaceEnvironment, obs: np.ndarray) -> float:
-    return float(
-        np.linalg.norm(
-            env.data.xpos[env.box_id] - env.data.mocap_pos[env.place_target_mocap_id]
-        )
-    )
+def _pick_final_dist(env: PickEnvironment, obs: np.ndarray) -> float:
+    target_z = env.box_height + env.lift_height
+    return float(target_z - env.data.xpos[env.box_id][2])
 
 
 TASKS: dict[str, TaskSpec] = {
     "reach": TaskSpec(ENV_CLASSES["reach"], ReachExpert, _reach_final_dist, "reached"),
-    "pick_and_place": TaskSpec(
-        ENV_CLASSES["pick_and_place"],
-        PickAndPlaceExpert,
-        _pick_and_place_final_dist,
-        "placed",
+    "pick": TaskSpec(
+        ENV_CLASSES["pick"],
+        PickExpert,
+        _pick_final_dist,
+        "picked",
     ),
 }
 

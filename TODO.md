@@ -2,9 +2,9 @@
 
 ## Ideas
 
-- [ ] Rewrite IK solver using cuRobo (NVIDIA) instead of `mink`/`daqp` — GPU-parallel,
+- [x] Rewrite IK solver using cuRobo (NVIDIA) instead of `mink`/`daqp` — GPU-parallel,
       likely faster for batched/edge inference. Needs a parity check against the
-      current `mink` solver before swapping it into `ReachExpert`/`PickAndPlaceExpert`.
+      current `mink` solver before swapping it into `ReachExpert`/`PickExpert`.
 - [ ] INT8 quantization with TensorRT — currently PTQ goes through ONNX Runtime
       (`ptq.py`, static QDQ + dynamic weight-only). Explore TensorRT-native INT8
       (calibration cache, `IInt8Calibrator`) as an alternative/addition to the fp16

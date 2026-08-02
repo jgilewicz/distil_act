@@ -8,7 +8,7 @@ def test_config_loads():
     cfg = load_config(str(REPO_ROOT / "config"))
     for key in ("collect", "renderer", "training", "distillation", "eval"):
         assert key in cfg
-    for task in ("reach", "pick_and_place"):
+    for task in ("reach", "pick"):
         collect_cfg = cfg["collect"]["tasks"][task]
         for section in ("env", "expert", "collection"):
             assert section in collect_cfg

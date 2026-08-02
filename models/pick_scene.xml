@@ -1,7 +1,7 @@
 <mujoco model="reach_scene">
   <compiler angle="radian" autolimits="true"/>
 
-  <option timestep="0.002" integrator="implicitfast"/>
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" impratio="10"/>
 
   <visual>
     <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
@@ -36,16 +36,11 @@
             rgba="0.35 0.3 0.25 1" contype="1" conaffinity="1"/>
     </body>
 
-    <body name="box" pos="0.12 0.10 0.01">
+    <body name="box" pos="0.12 0.025 0.01">
       <joint name="box_joint" type="free"/>
-      <geom name="box_geom" type="box" size="0.01 0.01 0.01"
-            rgba="1.0 0.15 0.15 1" contype="1" conaffinity="1"/>
-    </body>
-
-    <body name="place_target" pos="-0.10 0.15 0.01" mocap="true">
-      <geom name="place_target_geom" type="box" size="0.01 0.01 0.01"
-            rgba="0.15 1.0 0.15 0.55" contype="0" conaffinity="0"/>
-      <site name="place_target_site" pos="0 0 0" size="0.005" rgba="1 1 1 0"/>
+      <geom name="box_geom" type="box" size="0.025 0.025 0.025"
+            rgba="1.0 0.15 0.15 1" contype="1" conaffinity="1"
+            friction="1.5 0.01 0.0002" condim="4"/>
     </body>
   </worldbody>
 </mujoco>

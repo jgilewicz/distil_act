@@ -2,12 +2,12 @@
 
 A research project exploring in-simulation imitation learning and policy distillation. A scripted expert collects demonstrations in MuJoCo, an ACT teacher is trained via behaviour cloning, and a smaller student is distilled from it for edge deployment — all within a single, config-driven pipeline.
 
-The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement — carries over to any new task without modification. A second task, pick-and-place (box pickup + placement, `src/env/pick_and_place_env.py` + `src/expert/pick_and_place_expert.py`), follows this same pattern. The rest of the pipeline (`just train/distill/eval[-distill]/measure pick_and_place`) is wired up, but `PickAndPlaceExpert` is currently a stub (`compute_action` raises `NotImplementedError`) pending migration to the new IK backend, so `just collect pick_and_place` doesn't work yet. Quantization (`export_onnx.py`/`ptq.py`) remains reach-only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
+The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement — carries over to any new task without modification. A second task, pick (box pickup — lift the box clear of the table, no placement, `src/env/pick_env.py` + `src/expert/pick_expert.py`), follows this same pattern, with `PickExpert` driving a `curobo` `MotionPlanner`-based four-phase grasp (`approach → grasp → close → lift`). The rest of the pipeline (`just collect/train/distill/eval[-distill]/measure pick`) is fully wired up and working end to end. Quantization (`export_onnx.py`/`ptq.py`) remains reach-only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
 
 ## Stack
 
 - **Simulation** — MuJoCo 3 + `piper` (AgileX PiPER, 6-DOF arm + gripper) via `robot_descriptions`
-- **IK** — NVIDIA `curobo`, position-only tool-frame IK against `models/piper.urdf` (reach only — pick-and-place's expert is currently unimplemented)
+- **IK** — NVIDIA `curobo` against `models/piper.urdf`: position-only tool-frame IK (`InverseKinematics`) for reach, full grasp motion planning (`MotionPlanner`/`plan_grasp`) for pick
 - **Dataset** — HDF5 (`h5py`), multi-camera frames + joints + timestamps per episode; hosted on the Hugging Face Hub
 - **Teacher policy** — ACT in PyTorch; EfficientNet-B3 image backbone, CVAE encoder, Transformer encoder-decoder
 - **Student policy** — same ACT architecture, smaller dims + MobileNetV3-Large backbone; trained with a hard action loss, a soft loss against the teacher's predictions, and a latent-space distillation KL
@@ -34,9 +34,9 @@ just eval reach                   # 4a. watch the teacher policy, save a video
 just eval-distill reach           # 4b. watch the distilled student policy, save a video
 ```
 
-`just collect[-headless]`, `just train`, `just distill`, `just eval[-distill]`, and `just measure` all take `reach` or `pick_and_place`. Collection, teacher training, distillation, evaluation, and benchmarking are fully task-agnostic end to end. Quantization (`just export-onnx` / `just ptq`, `config/quant.yaml`) remains **reach-only** — `just measure pick_and_place` skips the quantized/TensorRT variants accordingly.
+`just collect[-headless]`, `just train`, `just distill`, `just eval[-distill]`, and `just measure` all take `reach` or `pick`. Collection, teacher training, distillation, evaluation, and benchmarking are fully task-agnostic end to end. Quantization (`just export-onnx` / `just ptq`, `config/quant.yaml`) remains **reach-only** — `just measure pick` skips the quantized/TensorRT variants accordingly.
 
-Pick-and-place's recorded qpos mixes the box's free-floating pose (7 dims: pos + quat, unactuated) with the robot's 6 actuated joints — the box comes first in the compiled model, so `joint_dim=13` (full state, used as model context) but `action_dim=6` (robot-only, sliced out of that same recorded qpos at `action_qpos_offset=7` — see `config/train.yaml`). That's what the model actually predicts and what gets sent to `env.step()` as `ctrl`.
+PiPER has `nq=8` (`joint1`-`joint6` arm + `joint7`/`joint8` gripper) but only `nu=7` actuators — `joint8` mirrors `joint7` via an MJCF equality constraint and has no actuator, so it's excluded from the action slice for both tasks. Pick's recorded qpos additionally mixes the box's free-floating pose (7 dims: pos + quat, unactuated) with PiPER's 8 — the box comes first in the compiled model, so `joint_dim=15` (full state, used as model context) but `action_dim=7` (the robot's actuated joints, sliced out of that same recorded qpos at `action_qpos_offset=7` — see `config/train.yaml`). That's what the model actually predicts and what gets sent to `env.step()` as `ctrl`.
 
 Each stage reads its own settings from `config/`, downloads whatever inputs it needs from the Hugging Face Hub automatically if they're not already on disk, and writes its own logs. See [Configuration](#configuration) below.
 
@@ -46,16 +46,14 @@ All settings live under `config/`, split into one file per pipeline stage so you
 
 | File | Section(s) | Used by |
 |---|---|---|
-| File | Section(s) | Used by |
-|---|---|---|
-| `config/collect.yaml` | `collect.tasks.reach`, `collect.tasks.pick_and_place` (each: `env`, `expert`, `collection`) | `collect_data.py --task <task>`, `push_data_to_hub.py --task <task>` |
+| `config/collect.yaml` | `collect.tasks.reach`, `collect.tasks.pick` (each: `env`, `expert`, `collection`) | `collect_data.py --task <task>`, `push_data_to_hub.py --task <task>` |
 | `config/simulation.yaml` | `renderer` | all collection/eval/measure scripts |
-| `config/train.yaml` | `training.tasks.reach`, `training.tasks.pick_and_place` (each: `action_dim`, `joint_dim`, `action_qpos_offset`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared architecture/optimizer keys | `train_act.py --task <task>`, `push_teacher_to_hub.py --task <task>` |
-| `config/distill.yaml` | `distillation.tasks.reach`, `distillation.tasks.pick_and_place` (each: `teacher`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared student architecture/loss-weight keys | `train_distil.py --task <task>`, `push_student_to_hub.py --task <task>` |
-| `config/eval.yaml` | `eval.tasks.reach`, `eval.tasks.pick_and_place` (each: `teacher`, `student`, `measure`) | `eval_act.py --task <task>`, `eval_distil.py --task <task>`, `distillation_measure.py --task <task>` |
+| `config/train.yaml` | `training.tasks.reach`, `training.tasks.pick` (each: `action_dim`, `joint_dim`, `action_qpos_offset`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared architecture/optimizer keys | `train_act.py --task <task>`, `push_teacher_to_hub.py --task <task>` |
+| `config/distill.yaml` | `distillation.tasks.reach`, `distillation.tasks.pick` (each: `teacher`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared student architecture/loss-weight keys | `train_distil.py --task <task>`, `push_student_to_hub.py --task <task>` |
+| `config/eval.yaml` | `eval.tasks.reach`, `eval.tasks.pick` (each: `teacher`, `student`, `measure`) | `eval_act.py --task <task>`, `eval_distil.py --task <task>`, `distillation_measure.py --task <task>` |
 | `config/quant.yaml` | `ptq` (reach-only, unparameterized) | `export_onnx.py`, `ptq.py` |
 
-`load_config()` merges every `*.yaml` in `config/` into a single dict, so scripts just do `cfg["training"]["tasks"]["reach"]`, `cfg["eval"]["tasks"][task]["teacher"]`, `cfg["collect"]["tasks"][task]["env"]`, etc. regardless of which file the section lives in. Every task-aware file uses identical key names nested under the task name — the only thing that switches between reach and pick-and-place is which task key you read (or pass via `--task`). `src/utils/tasks.py`'s `ENV_CLASSES` dict maps a task name to its `Environment` subclass and is shared by the collection, eval, and measurement scripts.
+`load_config()` merges every `*.yaml` in `config/` into a single dict, so scripts just do `cfg["training"]["tasks"]["reach"]`, `cfg["eval"]["tasks"][task]["teacher"]`, `cfg["collect"]["tasks"][task]["env"]`, etc. regardless of which file the section lives in. Every task-aware file uses identical key names nested under the task name — the only thing that switches between reach and pick is which task key you read (or pass via `--task`). `src/utils/tasks.py`'s `ENV_CLASSES` dict maps a task name to its `Environment` subclass and is shared by the collection, eval, and measurement scripts.
 
 ### Hugging Face Hub automation
 
@@ -81,18 +79,18 @@ Logging is likewise automatic and config-driven: every stage writes to the `log_
 
 ```bash
 just                              # list all available tasks
-just collect <task>               # collect demos with viewer (macOS: uses mjpython); task = reach | pick_and_place
-just collect-headless <task>      # collect demos headless; task = reach | pick_and_place
-just train <task>                 # train the ACT teacher (logs to W&B, saves to artifacts/); task = reach | pick_and_place
-just distill <task>               # distill the teacher into a smaller student; task = reach | pick_and_place
-just eval <task>                  # run the trained teacher with viewer (macOS: uses mjpython); task = reach | pick_and_place
-just eval-distill <task>          # run the distilled student with viewer (macOS: uses mjpython); task = reach | pick_and_place
+just collect <task>               # collect demos with viewer (macOS: uses mjpython); task = reach | pick
+just collect-headless <task>      # collect demos headless; task = reach | pick
+just train <task>                 # train the ACT teacher (logs to W&B, saves to artifacts/); task = reach | pick
+just distill <task>               # distill the teacher into a smaller student; task = reach | pick
+just eval <task>                  # run the trained teacher with viewer (macOS: uses mjpython); task = reach | pick
+just eval-distill <task>          # run the distilled student with viewer (macOS: uses mjpython); task = reach | pick
 just export-onnx                  # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast); reach only
 just ptq                          # post-training quantization (ONNX): static + dynamic int8 student, from the exported fp32 ONNX; reach only
 just measure <task>               # compare teacher, student, and (reach only) quantized variants: success rate, latency, size, VRAM/RAM
-just push-data <task>             # push the collected dataset to the Hub; task = reach | pick_and_place
-just push-teacher <task>          # push the teacher checkpoint to the Hub; task = reach | pick_and_place
-just push-student <task>          # push the student checkpoint to the Hub; task = reach | pick_and_place
+just push-data <task>             # push the collected dataset to the Hub; task = reach | pick
+just push-teacher <task>          # push the teacher checkpoint to the Hub; task = reach | pick
+just push-student <task>          # push the student checkpoint to the Hub; task = reach | pick
 just test                         # run test suite
 just lint                         # ruff check
 just fix                          # ruff check --fix + ruff format
@@ -104,23 +102,23 @@ just clean                        # remove generated logs, dataset, and pycache
 `just train <task>` reads its dataset from `collect.tasks.<task>.collection.dataset_dir` (auto-pulled from the Hub if absent, per `collect.tasks.<task>.collection.hub.auto_pull`) and writes into `training.tasks.<task>.checkpoint_dir`, using that task's `checkpoint_prefix`:
 
 - `<prefix>_step_<N>.pt` — periodic checkpoints (state dict only)
-- `<prefix>_final.pt` — final checkpoint including `norm_mean` / `norm_std` for inference (`act_model_final.pt` for reach, `pick_and_place_model_final.pt` for pick-and-place)
+- `<prefix>_final.pt` — final checkpoint including `norm_mean` / `norm_std` for inference (`act_model_final.pt` for reach, `pick_model_final.pt` for pick)
 
-`action_dim`/`joint_dim`/`action_qpos_offset` are per-task: reach's recorded qpos is the 6 robot joints only (`joint_dim=action_dim=6`, `offset=0`); pick-and-place's qpos is the box's 7-dof freejoint followed by the 6 robot joints (`joint_dim=13`, `action_dim=6`, `offset=7`) — the model conditions on full state but only ever predicts/controls the robot. `EpisodeDataset` (`src/dataset/dataloader.py`) slices the recorded-qpos "actions" target to `[offset:offset+action_dim]` per task; `qpos` (the context input) stays the full `joint_dim`-length vector. Checkpoints save two independent normalisation pairs — `norm_mean`/`norm_std` (qpos, for the input) and `action_norm_mean`/`action_norm_std` (actions, for denormalising the model's output before it's sent to `env.step()`). For reach the two pairs are numerically identical (`offset=0`, `action_dim=joint_dim`). Everything else (`embed_dim`, `latent_dim`, `nhead`, `num_layers`, `chunk_size`, `lr`, …) is shared architecture/optimizer config under `training` directly.
+`action_dim`/`joint_dim`/`action_qpos_offset` are per-task. PiPER has `nq=8` (`joint1`-`joint6` arm + `joint7`/`joint8` gripper) but only `nu=7` actuators — `joint8` mirrors `joint7` via an equality constraint and has no actuator, so it's excluded from the action slice: reach's recorded qpos is just PiPER's 8 (`joint_dim=8`, `action_dim=7`, `offset=0`); pick's qpos is the box's 7-dof freejoint followed by PiPER's 8 (`joint_dim=15`, `action_dim=7`, `offset=7`) — the model conditions on full state but only ever predicts/controls the robot's actuated joints. `EpisodeDataset` (`src/dataset/dataloader.py`) slices the recorded-qpos "actions" target to `[offset:offset+action_dim]` per task; `qpos` (the context input) stays the full `joint_dim`-length vector. Checkpoints save two independent normalisation pairs — `norm_mean`/`norm_std` (qpos, for the input) and `action_norm_mean`/`action_norm_std` (actions, for denormalising the model's output before it's sent to `env.step()`).
 
 Set `WANDB_API_KEY` in a `.env` file or shell environment before running.
 
 ```bash
 cp .env.example .env   # fill in WANDB_API_KEY
 just train reach
-just train pick_and_place
+just train pick
 ```
 
 ## Distillation
 
 `just distill <task>` loads that task's teacher checkpoint (`distillation.tasks.<task>.teacher.checkpoint`, auto-pulled from `.teacher.repo_id` if missing) and trains a smaller student — same ACT architecture at reduced `embed_dim`/`latent_dim`/`num_layers` with a MobileNetV3-Large backbone instead of EfficientNet-B3, and the same task-specific `action_dim`/`joint_dim` as the teacher (from `training.tasks.<task>`). The student's latent is projected up to `teacher_latent_dim` and matched against the teacher's CVAE posterior (`distillation_kl`), alongside a hard action loss and a soft loss against the teacher's predictions.
 
-Writes `<checkpoint_prefix>_step_<N>.pt` / `<checkpoint_prefix>_final.pt` into `distillation.tasks.<task>.checkpoint_dir` (`distil_act_model_*` for reach, `pick_and_place_distil_model_*` for pick-and-place), same layout and normalisation-stats contract as the teacher.
+Writes `<checkpoint_prefix>_step_<N>.pt` / `<checkpoint_prefix>_final.pt` into `distillation.tasks.<task>.checkpoint_dir` (`distil_act_model_*` for reach, `pick_distil_model_*` for pick), same layout and normalisation-stats contract as the teacher.
 
 ## Quantization
 
@@ -145,23 +143,23 @@ The quantized ONNX models carry no normalisation stats — the measurement loads
 ```bash
 just eval reach              # teacher, reach
 just eval-distill reach      # student, reach
-just eval pick_and_place     # teacher, pick-and-place
+just eval pick                # teacher, pick
 ```
 
 Each loads its checkpoint (auto-pulled per `eval.tasks.<task>.teacher`/`.student.auto_pull`), builds the task's `Environment` (`src/utils/tasks.py`'s `ENV_CLASSES[task]`), runs the policy, renders the passive viewer, and writes a video to `eval.tasks.<task>.teacher.video_path` / `.student.video_path` (overhead camera).
 
-The policy is queried every `chunk_size // 5` physics steps; `ChunkingBuffer` handles temporal ensembling for intermediate steps. The model's predicted action is denormalised with the task's `action_norm_mean`/`action_norm_std` and applied directly as `env.step()`'s `ctrl` — for pick-and-place this is already robot-only (see [Training](#training)), so no extra slicing is needed at eval time.
+The policy is queried every `chunk_size // 5` physics steps; `ChunkingBuffer` handles temporal ensembling for intermediate steps. The model's predicted action is denormalised with the task's `action_norm_mean`/`action_norm_std` and applied directly as `env.step()`'s `ctrl` — for pick this is already robot-only (7-dim, matching `nu`; see [Training](#training)), so no extra slicing is needed at eval time.
 
 ## Measurement
 
 ```bash
 just measure reach
-just measure pick_and_place
+just measure pick
 ```
 
 Runs `scripts/eval/distillation_measure.py --task <task>`: evaluates the fp32 teacher and student over `eval.tasks.<task>.measure.n_episodes` randomly-seeded episodes, and writes `eval.tasks.<task>.measure.output_path` (`artifacts/distillation_metrics_<task>.json`) with, per model:
 
-- `success_rate` — fraction of episodes that reached the task's termination condition (EE-to-target for reach, box-to-place-target for pick-and-place)
+- `success_rate` — fraction of episodes that reached the task's termination condition (EE-to-target distance for reach, box lifted above a height threshold for pick)
 - `mean_convergence_time_s` — average sim time for successful episodes
 - `mean_inference_time_ms` — average forward-pass latency
 - `model_size_mb` — checkpoint size on disk
@@ -169,7 +167,7 @@ Runs `scripts/eval/distillation_measure.py --task <task>`: evaluates the fp32 te
 - `ram_delta_mb` — growth in process RSS high-water mark (`ru_maxrss`) attributable to this variant's episodes; not an isolated peak, since all variants share one process
 - `joint_mean` / `joint_std` / `ee_pos_mean` / `ee_pos_std` — trajectory statistics across all episodes
 
-For `task=reach` only, three additional ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`) and two TensorRT variants (`student_trt_fp32`, `student_trt_fp16`) are also measured, since the ONNX export/PTQ pipeline (`config/quant.yaml`) is reach-only. `task=pick_and_place` logs a note and skips straight to writing `teacher`/`student` results.
+For `task=reach` only, three additional ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`) and two TensorRT variants (`student_trt_fp32`, `student_trt_fp16`) are also measured, since the ONNX export/PTQ pipeline (`config/quant.yaml`) is reach-only. `task=pick` logs a note and skips straight to writing `teacher`/`student` results.
 
 ## Results
 
@@ -253,7 +251,7 @@ class MyEnvironment(Environment):
         ...
 ```
 
-The obs vector must have `qpos` in its first `joint_dim` elements — the eval scripts index `obs[:joint_dim]` to extract joint positions for normalisation. `env.step(action)` must accept exactly `action_dim` values as `ctrl` — if your qpos includes unactuated dims (like pick-and-place's box freejoint), keep them in `joint_dim`/context but exclude them from `action_dim` (see `action_qpos_offset` below).
+The obs vector must have `qpos` in its first `joint_dim` elements — the eval scripts index `obs[:joint_dim]` to extract joint positions for normalisation. `env.step(action)` must accept exactly `action_dim` values as `ctrl` — if your qpos includes unactuated dims (like pick's box freejoint, or PiPER's mirrored `joint8`), keep them in `joint_dim`/context but exclude them from `action_dim` (see `action_qpos_offset` below).
 
 ### 2. New expert
 
@@ -276,7 +274,7 @@ The expert only needs to produce good-enough demonstrations — it is discarded 
 
 - **`src/utils/tasks.py`** — add `"<your_task>": MyEnvironment` to `ENV_CLASSES`. This is what `eval_act.py`, `eval_distil.py`, and `distillation_measure.py` use to build the right environment for `--task <your_task>`.
 - **`scripts/collection/collect_data.py`** — add a `TaskSpec(MyEnvironment, MyExpert, <final_dist_fn>, "<success_verb>")` entry to `TASKS`.
-- **`config/collect.yaml`** — add a `collect.tasks.<your_task>` block (same `env`/`expert`/`collection` shape as `reach`/`pick_and_place`), pointing `scene_xml_path` at your MuJoCo XML.
+- **`config/collect.yaml`** — add a `collect.tasks.<your_task>` block (same `env`/`expert`/`collection` shape as `reach`/`pick`), pointing `scene_xml_path` at your MuJoCo XML.
 - **`config/train.yaml`** — add a `training.tasks.<your_task>` block (`action_dim`, `joint_dim`, `action_qpos_offset`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`).
 - **`config/distill.yaml`** — add a `distillation.tasks.<your_task>` block (`teacher`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) once you have a teacher checkpoint to distill.
 - **`config/eval.yaml`** — add an `eval.tasks.<your_task>` block (`teacher`, `student`, `measure`).
@@ -291,38 +289,39 @@ With those in place, `just collect/train/distill/eval[-distill]/measure <your_ta
 
 ```
 src/
-  env/              # MuJoCo reach + pick-and-place environments
-  expert/           # IK-based scripted experts (curobo for reach; pick-and-place unimplemented) + abstract base
+  env/              # MuJoCo reach + pick environments
+  expert/           # IK-based scripted experts (curobo for both reach and pick) + abstract base
   renderer/         # off-screen rendering + passive viewer
   dataset/          # HDF5 episode recording + PyTorch dataset/dataloader
   algorithms/       # ACT policy, ImageEmbedding, ChunkingBuffer
   utils/            # logger, config loader, Hugging Face Hub helpers, task→Environment registry
 scripts/
   collection/
-    collect_data.py           # expert demo collection, --task {reach,pick_and_place}
+    collect_data.py           # expert demo collection, --task {reach,pick}
   training/
-    train_act.py             # ACT teacher training loop, --task {reach,pick_and_place}
-    train_distil.py          # student distillation loop, --task {reach,pick_and_place}
+    train_act.py             # ACT teacher training loop, --task {reach,pick}
+    train_distil.py          # student distillation loop, --task {reach,pick}
   eval/
-    eval_act.py               # teacher evaluation + video export, --task {reach,pick_and_place}
-    eval_distil.py            # student evaluation + video export, --task {reach,pick_and_place}
-    distillation_measure.py   # teacher / student / (reach-only) quantized benchmark, --task {reach,pick_and_place}
+    eval_act.py               # teacher evaluation + video export, --task {reach,pick}
+    eval_distil.py            # student evaluation + video export, --task {reach,pick}
+    distillation_measure.py   # teacher / student / (reach-only) quantized benchmark, --task {reach,pick}
   quantization/
     export_onnx.py            # export distilled student → fp32 + fp16 ONNX (reach only)
     ptq.py                     # post-training quantization → static + dynamic int8 ONNX (reach only)
     inference.py               # TensorRT engine build + inference
   hub/
-    push_data_to_hub.py       # manual dataset push, --task {reach,pick_and_place}
-    push_teacher_to_hub.py    # manual teacher checkpoint push, --task {reach,pick_and_place}
-    push_student_to_hub.py    # manual student checkpoint push, --task {reach,pick_and_place}
+    push_data_to_hub.py       # manual dataset push, --task {reach,pick}
+    push_teacher_to_hub.py    # manual teacher checkpoint push, --task {reach,pick}
+    push_student_to_hub.py    # manual student checkpoint push, --task {reach,pick}
 models/
   reach_scene.xml
-  pick_and_place_scene.xml
+  pick_scene.xml
+  pick.yaml         # curobo collision world for the pick task (table + box), mirrors pick_scene.xml
   piper.urdf        # AgileX PiPER kinematics, converted from the robot_descriptions MJCF - curobo IK input
   meshes/            # piper.urdf mesh assets
 tests/
 config/
-  collect.yaml      # per-task (reach, pick_and_place) env, expert, collection
+  collect.yaml      # per-task (reach, pick) env, expert, collection
   simulation.yaml   # shared renderer
   train.yaml        # per-task teacher training (dims, checkpoint, hub) + shared architecture/optimizer
   distill.yaml      # per-task student distillation (teacher, checkpoint, hub) + shared architecture/loss weights

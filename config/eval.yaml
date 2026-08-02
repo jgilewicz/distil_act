@@ -30,26 +30,26 @@ eval:
         log_file: "logs/distillation_measure_reach.log"
         output_path: "artifacts/distillation_metrics_reach.json"
 
-    pick_and_place:
+    pick:
       teacher:
-        checkpoint: "artifacts/pick_and_place_model_final.pt"
-        repo_id: "jgilewicz/distil_act_pick_and_place_teacher"
-        filename: "pick_and_place_model_final.pt"
+        checkpoint: "artifacts/pick_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_teacher"
+        filename: "pick_model_final.pt"
         auto_pull: true
         seed: 1
-        video_path: "artifacts/eval_teacher_pick_and_place.mp4"
-        log_file: "logs/eval_teacher_pick_and_place.log"
+        video_path: "artifacts/eval_teacher_pick.mp4"
+        log_file: "logs/eval_teacher_pick.log"
 
       student:
-        checkpoint: "artifacts/pick_and_place_distil_model_final.pt"
-        repo_id: "jgilewicz/distil_act_pick_and_place_student"
-        filename: "pick_and_place_distil_model_final.pt"
+        checkpoint: "artifacts/pick_distil_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_student"
+        filename: "pick_distil_model_final.pt"
         auto_pull: true
         seed: 0
-        video_path: "artifacts/eval_student_pick_and_place.mp4"
-        log_file: "logs/eval_student_pick_and_place.log"
+        video_path: "artifacts/eval_student_pick.mp4"
+        log_file: "logs/eval_student_pick.log"
 
       measure:
         n_episodes: 20
-        log_file: "logs/distillation_measure_pick_and_place.log"
-        output_path: "artifacts/distillation_metrics_pick_and_place.json"
+        log_file: "logs/distillation_measure_pick.log"
+        output_path: "artifacts/distillation_metrics_pick.json"

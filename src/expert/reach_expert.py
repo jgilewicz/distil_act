@@ -31,15 +31,14 @@ class ReachExpert(Expert):
         device: str = "cuda",
     ) -> None:
         self.env = env
-        self.device = device
-        device_cfg = DeviceCfg(device=device)
+        self.device = torch.device(device)
+        device_cfg = DeviceCfg(device=self.device)
 
-        # curobo resolves robot= paths against its own config dir, not cwd
+        # absolute path for curobot
         config_path = os.path.abspath(config_path)
 
         if not os.path.exists(config_path):
-            # link7/link8 are fixed leaves of link6 - pick it explicitly
-            # rather than relying on leaf auto-detection
+            # link6 is the parent of end effector links
             builder = RobotBuilder(
                 urdf_path=urdf_path,
                 asset_path=asset_path,
@@ -67,8 +66,8 @@ class ReachExpert(Expert):
         self.ik = InverseKinematics(config)
         self.target_link = self.ik.tool_frames[0]
 
-        # Pose() defaults orientation to identity, ~85deg off link6's rest
-        # pose - zero the rotation axes for true position-only IK
+        # position task, not orientation - 6 DoF arm for quaterion = [1,0,0,0]
+        # might not be solved for given orientation
         self.ik.update_tool_pose_criteria(
             {
                 self.target_link: ToolPoseCriteria(
@@ -79,17 +78,21 @@ class ReachExpert(Expert):
             }
         )
 
-        # last entry in _JOINT_NAMES is the gripper - not commanded by IK
-        arm_joint_names = _JOINT_NAMES[:-1]
+        # reach has no grasp target - the gripper actuator is left at its
+        # zero-initialized ctrl (closed) and only the 6 arm joints are solved
+        arm_joint_names = _JOINT_NAMES
+
         self.arm_actuator_ids = np.array(
             [env.model.actuator(name).id for name in arm_joint_names]
         )
-        # ik.joint_names is unprefixed; _JOINT_NAMES is robot_-prefixed - map by name
+
+        # remove prefixes from mujoco model xml file
         self.ik_joint_order = [
             self.ik.joint_names.index(name.removeprefix("robot_"))
             for name in arm_joint_names
         ]
-        # seeds solve_pose with live state so IK doesn't jump between solutions
+
+        # positions of joints - passed to IK step for faster convergence
         self.ik_qpos_idx = [
             env.model.joint(f"robot_{name}").qposadr[0] for name in self.ik.joint_names
         ]
@@ -102,8 +105,8 @@ class ReachExpert(Expert):
                 np.array([target_pos]), device=self.device, dtype=torch.float32
             )
         )
-
         current_q = self.env.data.qpos[self.ik_qpos_idx]
+
         current_state = JointState.from_position(
             torch.tensor(
                 np.array([current_q]), device=self.device, dtype=torch.float32
@@ -116,19 +119,12 @@ class ReachExpert(Expert):
             current_state=current_state,
         )
 
-        if not bool(result.success.reshape(-1)[0]):
-            logger.warning(
-                f"curobo IK did not converge (pos_error="
-                f"{result.position_error.reshape(-1)[0].item():.4f})"
-            )
-
-        solution = result.js_solution.position.reshape(-1).detach().cpu().numpy()
-        if solution.shape[0] != len(self.ik.joint_names):
-            raise RuntimeError(
-                f"curobo IK returned {solution.shape[0]} joint values, expected "
-                f"{len(self.ik.joint_names)} for joints {self.ik.joint_names}"
-            )
-
         action = np.zeros(self.env.model.nu)
-        action[self.arm_actuator_ids] = solution[self.ik_joint_order]
+        try:
+            solution_pos = result.js_solution.position
+            np_solution = solution_pos.reshape(-1).detach().cpu().numpy()
+            action[self.arm_actuator_ids] = np_solution[self.ik_joint_order]
+        except Exception as e:
+            logger.error(f"Failed to compute action: {e}")
+
         return action

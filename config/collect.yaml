@@ -1,6 +1,6 @@
 # Per-task env/expert/collection config for scripts/collection/collect_data.py.
 # Same key names (env/expert/collection) under each task so collection is a
-# single script switched by `--task {reach,pick_and_place}`.
+# single script switched by `--task {reach,pick}`.
 
 collect:
   tasks:
@@ -39,28 +39,29 @@ collect:
           auto_pull: true
           auto_push: false
 
-    pick_and_place:
+    pick:
       env:
-        scene_xml_path: "models/pick_and_place_scene.xml"
+        scene_xml_path: "models/pick_scene.xml"
         box_x_range: [-0.10, -0.06]
         box_y_range: [0.13, 0.15]
-        placement_x_range: [0.06, 0.10]
-        placement_y_range: [0.13, 0.15]
-        box_height: 0.01
-        placement_threshold: 0.012
+        box_height: 0.025
+        lift_height: 0.05
+        gripper_kp: 200.0
+        gripper_kv: 11.0
 
-      expert: {}
+      expert:
+        close_steps: 50
 
       collection:
         n_episodes: 200
         n_steps: 2500
-        dataset_dir: "data/pick_and_place"
-        log_file: "logs/pick_and_place_data_gathering.log"
+        dataset_dir: "data/pick"
+        log_file: "logs/pick_data_gathering.log"
         render_cameras:
           - "overhead_cam"
           - "ego_cam"
 
         hub:
-          repo_id: "jgilewicz/pick_and_place_data"
+          repo_id: "jgilewicz/pick_data"
           auto_pull: false
           auto_push: false

@@ -1,12 +1,15 @@
 # Teacher ACT training (scripts/training/train_act.py --task <task>).
 # action_dim/joint_dim/checkpoint/hub/log_file are task-specific (the two tasks
-# record different qpos dims — reach: 6 robot joints; pick_and_place: 6 robot
-# joints + 7 box freejoint). joint_dim is the full recorded qpos (context input);
-# action_dim/action_qpos_offset select the robot-only slice of that same qpos
-# that the model actually predicts and that gets sent to env.step() as ctrl —
-# for pick_and_place the box's 7-dof freejoint occupies qpos[0:7], so the robot
-# slice is qpos[7:13]. Everything else is architecture/optimizer config shared
-# across tasks.
+# record different qpos dims — reach: PiPER's 8 (joint1-6 arm + joint7/8
+# gripper); pick: box's 7-dof freejoint + PiPER's 8). joint_dim is
+# the full recorded qpos (context input); action_dim/action_qpos_offset select
+# the robot-actuated slice of that same qpos that the model predicts and sends
+# to env.step() as ctrl. PiPER has nu=7 actuators (joint1-6 + one gripper
+# actuator driving joint7) — joint8 mirrors joint7 via an MJCF equality
+# constraint and has no actuator, so it's excluded from the action slice: for
+# reach that's qpos[0:7], for pick qpos[7:14] (box occupies
+# qpos[0:7]). Everything else is architecture/optimizer config shared across
+# tasks.
 
 training:
   embed_dim: 256
@@ -31,8 +34,8 @@ training:
 
   tasks:
     reach:
-      action_dim: 6
-      joint_dim: 6
+      action_dim: 7
+      joint_dim: 8
       action_qpos_offset: 0
       log_file: "logs/training_reach.log"
       checkpoint_dir: "artifacts"
@@ -43,15 +46,15 @@ training:
         filename: "act_model_final.pt"
         auto_push: false
 
-    pick_and_place:
-      action_dim: 6
-      joint_dim: 13
+    pick:
+      action_dim: 7
+      joint_dim: 15
       action_qpos_offset: 7
-      log_file: "logs/training_pick_and_place.log"
+      log_file: "logs/training_pick.log"
       checkpoint_dir: "artifacts"
-      checkpoint_prefix: "pick_and_place_model"
+      checkpoint_prefix: "pick_model"
 
       hub:
-        repo_id: "jgilewicz/distil_act_pick_and_place_teacher"
-        filename: "pick_and_place_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_teacher"
+        filename: "pick_model_final.pt"
         auto_push: false

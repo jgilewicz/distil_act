@@ -9,7 +9,6 @@ _JOINT_NAMES = [
     "robot_joint4",
     "robot_joint5",
     "robot_joint6",
-    "robot_joint7",
 ]
 
 

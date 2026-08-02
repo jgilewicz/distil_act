@@ -7,7 +7,7 @@ from utils.logger import Logger
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--task", choices=("reach", "pick_and_place"), required=True)
+    parser.add_argument("--task", choices=("reach", "pick"), required=True)
     args = parser.parse_args()
 
     cfg = load_config()

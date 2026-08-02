@@ -1,30 +1,7 @@
 import mujoco
-from robot_descriptions import piper_mj_description
 import numpy as np
 
-from env.base import Environment
-
-
-def build_model(scene_xml_path: str) -> mujoco.MjModel:
-    scene_spec = mujoco.MjSpec.from_file(scene_xml_path)
-    robot_spec = mujoco.MjSpec.from_file(piper_mj_description.MJCF_PATH)
-
-    attach_frame = scene_spec.worldbody.add_frame()
-    attach_frame.attach_body(robot_spec.worldbody.first_body(), prefix="robot_")
-
-    # link6 is the wrist link just before the gripper fingers - stable
-    # reference point that doesn't move as the gripper opens/closes
-    gripper_body = next(
-        (b for b in scene_spec.bodies if b.name == "robot_link6"), None
-    )
-
-    if gripper_body is not None:
-        cam_frame = gripper_body.add_frame()
-        cam_frame.add_camera(
-            name="ego_cam", pos=[0, 0, 0.05], xyaxes=[1, 0, 0, 0, 0, 1], fovy=75
-        )
-
-    return scene_spec.compile()
+from env.base import Environment, build_model
 
 
 def sample_target_position(

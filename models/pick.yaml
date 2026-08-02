@@ -1,0 +1,25 @@
+## curobo scene collision model for the pick task.
+## Mirrors models/pick_scene.xml (MJCF `size` is half-extents,
+## curobo `dims` is full extents) so MotionPlanner avoids the table while
+## reaching for the box. The box pose here is a placeholder - its actual
+## pose is randomized per-episode by PickEnvironment.reset() and
+## must be synced at runtime via scene_collision_checker.update_obstacle_pose.
+cuboid:
+  table_top:
+    dims: [0.70, 0.70, 0.04] # x, y, z
+    pose: [0.0, 0.0, -0.02, 1, 0, 0, 0.0] # x, y, z, qw, qx, qy, qz
+  table_leg_1:
+    dims: [0.04, 0.04, 0.42] # x, y, z
+    pose: [0.3, 0.3, -0.25, 1, 0, 0, 0.0]
+  table_leg_2:
+    dims: [0.04, 0.04, 0.42] # x, y, z
+    pose: [-0.3, 0.3, -0.25, 1, 0, 0, 0.0]
+  table_leg_3:
+    dims: [0.04, 0.04, 0.42] # x, y, z
+    pose: [0.3, -0.3, -0.25, 1, 0, 0, 0.0]
+  table_leg_4:
+    dims: [0.04, 0.04, 0.42] # x, y, z
+    pose: [-0.3, -0.3, -0.25, 1, 0, 0, 0.0]
+  box:
+    dims: [0.025, 0.025, 0.025] # x, y, z
+    pose: [0.12, 0.10, 0.025, 1, 0, 0, 0.0]
