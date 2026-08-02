@@ -20,12 +20,12 @@ test:
 
 # check code for lint errors
 lint:
-    uv run ruff check src/ scripts/
+    uv run ruff check src/ scripts/ tests/
 
 # auto-fix lint errors and reformat code
 fix:
-    uv run ruff check --fix src/ scripts/
-    uv run ruff format src/ scripts/
+    uv run ruff check --fix src/ scripts/ tests/
+    uv run ruff format src/ scripts/ tests/
 
 # remove generated logs, dataset, and pycache
 clean:

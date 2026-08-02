@@ -5,7 +5,9 @@ from dataset.dataset_manager import DatasetManager
 
 
 def test_episode_recorder_writes_hdf5(tmp_path):
-    manager = DatasetManager(root_dir=str(tmp_path), img_shape=(2, 48, 64, 3), joint_dim=6)
+    manager = DatasetManager(
+        root_dir=str(tmp_path), img_shape=(2, 48, 64, 3), joint_dim=6
+    )
     recorder = manager.create_new_episode()
     frames = np.zeros((2, 48, 64, 3), dtype=np.uint8)
     joints = np.zeros(6, dtype=np.float32)

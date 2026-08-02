@@ -15,8 +15,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --frozen
-      - run: uv run ruff check src/ scripts/
-      - run: uv run ruff format --check src/ scripts/
+      - run: uv run ruff check src/ scripts/ tests/
+      - run: uv run ruff format --check src/ scripts/ tests/
 
   test:
     runs-on: ubuntu-latest
