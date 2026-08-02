@@ -45,7 +45,7 @@ Each stage's Hub interaction (dataset/checkpoint download and upload) is config-
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`: lint → test → docker build. The Docker image (`Docker/Dockerfile`) is `python:3.14-slim` with `MUJOCO_GL=disabled` for headless physics.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push/PR to `main`: lint → test → docker build. The Docker image (`Docker/Dockerfile`) is `python:3.14-slim` with `MUJOCO_GL=disabled` for headless physics. `ubuntu-latest` runners have no GPU, so `tests/test_expert.py` (curobo IK/grasp planning, which requires CUDA) is skipped via `pytest.mark.skipif(not torch.cuda.is_available())` — it still runs on any machine with a GPU, local or otherwise.
 
 ## Architecture
 
