@@ -64,10 +64,10 @@ push-student task:
 measure task:
     uv run python3 scripts/eval/distillation_measure.py --task {{task}}
 
-# export the distilled student to ONNX: fp32 (torch.onnx.export) + fp16 (modelopt autocast)
-export-onnx:
-    uv run python3 scripts/quantization/export_onnx.py
+# export the distilled student to ONNX: fp32 (torch.onnx.export) + fp16 (modelopt autocast); task = reach | pick
+export-onnx task:
+    uv run python3 scripts/quantization/export_onnx.py --task {{task}}
 
-# post-training quantization (ONNX Runtime): static + dynamic int8 of the student, from the exported fp32 ONNX
-ptq:
-    uv run python3 scripts/quantization/ptq.py
+# post-training quantization: ONNX Runtime static/dynamic int8 + modelopt int8 QDQ of the student, from the exported fp32 ONNX; task = reach | pick
+ptq task:
+    uv run python3 scripts/quantization/ptq.py --task {{task}}

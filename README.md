@@ -2,7 +2,7 @@
 
 A research project exploring in-simulation imitation learning and policy distillation. A scripted expert collects demonstrations in MuJoCo, an ACT teacher is trained via behaviour cloning, and a smaller student is distilled from it for edge deployment — all within a single, config-driven pipeline.
 
-The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement — carries over to any new task without modification. A second task, pick (box pickup — lift the box clear of the table, no placement, `src/env/pick_env.py` + `src/expert/pick_expert.py`), follows this same pattern, with `PickExpert` driving a `curobo` `MotionPlanner`-based four-phase grasp (`approach → grasp → close → lift`). The rest of the pipeline (`just collect/train/distill/eval[-distill]/measure pick`) is fully wired up and working end to end. Quantization (`export_onnx.py`/`ptq.py`) remains reach-only. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
+The reach task implemented here is a proof of concept. The env/expert layer is deliberately thin and abstract (`Environment` + `Expert` base classes), so the rest of the pipeline — data collection, ACT training, distillation, evaluation, measurement, quantization — carries over to any new task without modification. A second task, pick (box pickup — lift the box clear of the table, no placement, `src/env/pick_env.py` + `src/expert/pick_expert.py`), follows this same pattern, with `PickExpert` driving a `curobo` `MotionPlanner`-based four-phase grasp (`approach → grasp → close → lift`). The whole pipeline (`just collect/train/distill/eval[-distill]/measure/export-onnx/ptq pick`) is fully wired up and working end to end. A natural next step would be packaging this as a Python library for general in-simulation policy learning and distillation.
 
 ## Stack
 
@@ -12,7 +12,7 @@ The reach task implemented here is a proof of concept. The env/expert layer is d
 - **Teacher policy** — ACT in PyTorch; EfficientNet-B3 image backbone, CVAE encoder, Transformer encoder-decoder
 - **Student policy** — same ACT architecture, smaller dims + MobileNetV3-Large backbone; trained with a hard action loss, a soft loss against the teacher's predictions, and a latent-space distillation KL
 - **Training** — AdamW + linear warmup + cosine decay; KL-weighted ELBO loss; logged to W&B
-- **Quantization** — ONNX Runtime post-training quantization (static QDQ + dynamic int8), exported to ONNX
+- **Quantization** — ONNX Runtime PTQ (static QDQ + dynamic int8) and NVIDIA ModelOpt int8 QDQ, plus TensorRT fp32/fp16/int8 engines; task-parameterized (reach + pick)
 - **Inference** — `ChunkingBuffer` temporal ensembling over overlapping action chunks
 
 ## The pipeline
@@ -34,7 +34,7 @@ just eval reach                   # 4a. watch the teacher policy, save a video
 just eval-distill reach           # 4b. watch the distilled student policy, save a video
 ```
 
-`just collect[-headless]`, `just train`, `just distill`, `just eval[-distill]`, and `just measure` all take `reach` or `pick`. Collection, teacher training, distillation, evaluation, and benchmarking are fully task-agnostic end to end. Quantization (`just export-onnx` / `just ptq`, `config/quant.yaml`) remains **reach-only** — `just measure pick` skips the quantized/TensorRT variants accordingly.
+`just collect[-headless]`, `just train`, `just distill`, `just eval[-distill]`, `just measure`, `just export-onnx`, and `just ptq` all take `reach` or `pick`. The entire pipeline — collection, teacher training, distillation, evaluation, quantization, and benchmarking — is fully task-agnostic end to end.
 
 PiPER has `nq=8` (`joint1`-`joint6` arm + `joint7`/`joint8` gripper) but only `nu=7` actuators — `joint8` mirrors `joint7` via an MJCF equality constraint and has no actuator, so it's excluded from the action slice for both tasks. Pick's recorded qpos additionally mixes the box's free-floating pose (7 dims: pos + quat, unactuated) with PiPER's 8 — the box comes first in the compiled model, so `joint_dim=15` (full state, used as model context) but `action_dim=7` (the robot's actuated joints, sliced out of that same recorded qpos at `action_qpos_offset=7` — see `config/train.yaml`). That's what the model actually predicts and what gets sent to `env.step()` as `ctrl`.
 
@@ -51,7 +51,7 @@ All settings live under `config/`, split into one file per pipeline stage so you
 | `config/train.yaml` | `training.tasks.reach`, `training.tasks.pick` (each: `action_dim`, `joint_dim`, `action_qpos_offset`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared architecture/optimizer keys | `train_act.py --task <task>`, `push_teacher_to_hub.py --task <task>` |
 | `config/distill.yaml` | `distillation.tasks.reach`, `distillation.tasks.pick` (each: `teacher`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) plus shared student architecture/loss-weight keys | `train_distil.py --task <task>`, `push_student_to_hub.py --task <task>` |
 | `config/eval.yaml` | `eval.tasks.reach`, `eval.tasks.pick` (each: `teacher`, `student`, `measure`) | `eval_act.py --task <task>`, `eval_distil.py --task <task>`, `distillation_measure.py --task <task>` |
-| `config/quant.yaml` | `ptq` (reach-only, unparameterized) | `export_onnx.py`, `ptq.py` |
+| `config/quant.yaml` | `ptq.tasks.reach`, `ptq.tasks.pick` (each: every ONNX/engine artifact path) plus shared `calibration_samples`/log files | `export_onnx.py --task <task>`, `ptq.py --task <task>` |
 
 `load_config()` merges every `*.yaml` in `config/` into a single dict, so scripts just do `cfg["training"]["tasks"]["reach"]`, `cfg["eval"]["tasks"][task]["teacher"]`, `cfg["collect"]["tasks"][task]["env"]`, etc. regardless of which file the section lives in. Every task-aware file uses identical key names nested under the task name — the only thing that switches between reach and pick is which task key you read (or pass via `--task`). `src/utils/tasks.py`'s `ENV_CLASSES` dict maps a task name to its `Environment` subclass and is shared by the collection, eval, and measurement scripts.
 
@@ -85,9 +85,9 @@ just train <task>                 # train the ACT teacher (logs to W&B, saves to
 just distill <task>               # distill the teacher into a smaller student; task = reach | pick
 just eval <task>                  # run the trained teacher with viewer (macOS: uses mjpython); task = reach | pick
 just eval-distill <task>          # run the distilled student with viewer (macOS: uses mjpython); task = reach | pick
-just export-onnx                  # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast); reach only
-just ptq                          # post-training quantization (ONNX): static + dynamic int8 student, from the exported fp32 ONNX; reach only
-just measure <task>               # compare teacher, student, and (reach only) quantized variants: success rate, latency, size, VRAM/RAM
+just export-onnx <task>           # export the distilled student to ONNX: fp32 + fp16 (modelopt autocast); task = reach | pick
+just ptq <task>                   # post-training quantization: ONNX Runtime static/dynamic int8 + modelopt int8 QDQ; task = reach | pick
+just measure <task>               # compare teacher, student, quantized, and TensorRT variants: success rate, latency, size, VRAM/RAM
 just push-data <task>             # push the collected dataset to the Hub; task = reach | pick
 just push-teacher <task>          # push the teacher checkpoint to the Hub; task = reach | pick
 just push-student <task>          # push the student checkpoint to the Hub; task = reach | pick
@@ -122,21 +122,22 @@ Writes `<checkpoint_prefix>_step_<N>.pt` / `<checkpoint_prefix>_final.pt` into `
 
 ## Quantization
 
-Compressing the distilled student for edge deployment is two separate steps — export to ONNX, then quantize. Settings for both live in `config/quant.yaml` (`ptq` section, **reach-only**); outputs land in `artifacts/`.
+Compressing the distilled student for edge deployment is two separate steps — export to ONNX, then quantize. Settings for both live in `config/quant.yaml` (`ptq.tasks.<task>`, plus shared `calibration_samples`/log files); outputs land in `artifacts/`.
 
 ```bash
-just export-onnx   # distil_act_model_final.pt → fp32 ONNX (torch.onnx.export) + fp16 ONNX (modelopt autocast)
-just ptq           # fp32 ONNX → static + dynamic int8 (CPU, ONNX Runtime)
+just export-onnx reach   # distil_act_model_final.pt → fp32 ONNX (torch.onnx.export) + fp16 ONNX (modelopt autocast)
+just ptq reach            # fp32 ONNX → static/dynamic int8 (ONNX Runtime) + int8 QDQ (modelopt)
 ```
 
-`export_onnx.py` loads the checkpoint and exports the student's inference path to fp32 ONNX, then converts it to a mixed-precision fp16 graph via `modelopt.onnx.autocast` — the offline replacement for TensorRT's removed `BuilderFlag.FP16`/`INT8` builder flags (TensorRT 11.x now expects precision baked into the ONNX graph ahead of time).
+`export_onnx.py --task <task>` loads that task's student checkpoint and exports its inference path to fp32 ONNX, then converts it to a mixed-precision fp16 graph via `modelopt.onnx.autocast` — the offline replacement for TensorRT's removed `BuilderFlag.FP16`/`INT8` builder flags (TensorRT 11.x now expects precision baked into the ONNX graph ahead of time).
 
-`ptq.py` only touches the already-exported fp32 ONNX (run `export-onnx` first) and writes two int8 models, both benchmarked by `just measure` alongside the fp32 models:
+`ptq.py --task <task>` only touches that task's already-exported fp32 ONNX (run `export-onnx <task>` first) and writes three int8 models, all benchmarked by `just measure <task>` alongside the fp32/fp16 models and TensorRT engines built from them:
 
-- **static** QDQ (`distil_act_model_ptq.onnx`) — calibrated on the validation split.
-- **dynamic** weight-only (`distil_act_model_dyn.onnx`) — no calibration.
+- **static** QDQ (`..._ptq.onnx`, ONNX Runtime) — calibrated on the validation split.
+- **dynamic** weight-only (`..._dyn.onnx`, ONNX Runtime) — no calibration.
+- **int8 QDQ** (`..._int8_qdq.onnx`, `modelopt.onnx.quantization.quantize`) — calibrated on a `.npz` built from the validation split (`calib_npz_path`, via `build_calibration_npz`).
 
-The quantized ONNX models carry no normalisation stats — the measurement loads `norm_mean`/`norm_std`/`action_norm_mean`/`action_norm_std` from the student checkpoint and runs the ONNX graphs on CPU via ONNX Runtime.
+The quantized ONNX models carry no normalisation stats — the measurement loads `norm_mean`/`norm_std`/`action_norm_mean`/`action_norm_std` from the student checkpoint and runs the ONNX graphs on CPU via ONNX Runtime, or as TensorRT engines (`fp32`/`fp16`/`int8`, built once and cached to `engine_*_path`).
 
 ## Evaluation
 
@@ -167,7 +168,7 @@ Runs `scripts/eval/distillation_measure.py --task <task>`: evaluates the fp32 te
 - `ram_delta_mb` — growth in process RSS high-water mark (`ru_maxrss`) attributable to this variant's episodes; not an isolated peak, since all variants share one process
 - `joint_mean` / `joint_std` / `ee_pos_mean` / `ee_pos_std` — trajectory statistics across all episodes
 
-For `task=reach` only, three additional ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`) and two TensorRT variants (`student_trt_fp32`, `student_trt_fp16`) are also measured, since the ONNX export/PTQ pipeline (`config/quant.yaml`) is reach-only. `task=pick` logs a note and skips straight to writing `teacher`/`student` results.
+Four additional ONNX Runtime variants (`student_ptq`, `student_dyn`, `student_fp16_onnx`, `student_int8_qdq`) and three TensorRT variants (`student_trt_fp32`, `student_trt_fp16`, `student_trt_int8`) are also measured, from that task's `export_onnx.py --task <task>` / `ptq.py --task <task>` outputs (`config/quant.yaml`'s `ptq.tasks.<task>`).
 
 ## Results
 
@@ -278,8 +279,9 @@ The expert only needs to produce good-enough demonstrations — it is discarded 
 - **`config/train.yaml`** — add a `training.tasks.<your_task>` block (`action_dim`, `joint_dim`, `action_qpos_offset`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`).
 - **`config/distill.yaml`** — add a `distillation.tasks.<your_task>` block (`teacher`, `log_file`, `checkpoint_dir`, `checkpoint_prefix`, `hub`) once you have a teacher checkpoint to distill.
 - **`config/eval.yaml`** — add an `eval.tasks.<your_task>` block (`teacher`, `student`, `measure`).
+- **`config/quant.yaml`** — add a `ptq.tasks.<your_task>` block (same artifact-path shape as `reach`/`pick`) once you want ONNX export/PTQ for this task.
 
-With those in place, `just collect/train/distill/eval[-distill]/measure <your_task>` all work. Quantization (`export_onnx.py`, `ptq.py`, `config/quant.yaml`) is reach-only and isn't part of this registry — wire it up per-task separately if you need it.
+With those in place, `just collect/train/distill/eval[-distill]/measure/export-onnx/ptq <your_task>` all work.
 
 ### 4. Swap imports in the eval scripts
 
@@ -304,10 +306,10 @@ scripts/
   eval/
     eval_act.py               # teacher evaluation + video export, --task {reach,pick}
     eval_distil.py            # student evaluation + video export, --task {reach,pick}
-    distillation_measure.py   # teacher / student / (reach-only) quantized benchmark, --task {reach,pick}
+    distillation_measure.py   # teacher / student / quantized / TensorRT benchmark, --task {reach,pick}
   quantization/
-    export_onnx.py            # export distilled student → fp32 + fp16 ONNX (reach only)
-    ptq.py                     # post-training quantization → static + dynamic int8 ONNX (reach only)
+    export_onnx.py            # export distilled student → fp32 + fp16 ONNX, --task {reach,pick}
+    ptq.py                     # post-training quantization → ONNX Runtime static/dynamic + modelopt int8 QDQ, --task {reach,pick}
     inference.py               # TensorRT engine build + inference
   hub/
     push_data_to_hub.py       # manual dataset push, --task {reach,pick}
@@ -326,7 +328,7 @@ config/
   train.yaml        # per-task teacher training (dims, checkpoint, hub) + shared architecture/optimizer
   distill.yaml      # per-task student distillation (teacher, checkpoint, hub) + shared architecture/loss weights
   eval.yaml         # per-task evaluation + measurement (teacher, student, measure)
-  quant.yaml        # quantization (ptq, reach-only)
+  quant.yaml        # quantization (ptq, per-task tasks.reach/tasks.pick)
 justfile
 Docker/Dockerfile
 .github/workflows/ci.yml

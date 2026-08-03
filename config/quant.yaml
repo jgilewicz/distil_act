@@ -1,11 +1,33 @@
+# ONNX export + post-training quantization (scripts/quantization/export_onnx.py
+# and ptq.py --task <task>). calibration_samples/log files are shared; per-task
+# blocks hold every artifact path so reach and pick don't collide.
+
 ptq:
   calibration_samples: 256
-  fp32_path: "artifacts/distil_act_model_32.onnx"
-  fp32_preprocessed_path: "artifacts/distil_act_model_32_preprocessed.onnx"
-  fp16_path: "artifacts/distil_act_model_16.onnx"
-  output_path: "artifacts/distil_act_model_ptq.onnx"
-  dyn_path: "artifacts/distil_act_model_dyn.onnx"
-  engine_fp32_path: "artifacts/distil_act_model_32.engine"
-  engine_fp16_path: "artifacts/distil_act_model_16.engine"
   export_log_file: "logs/export_onnx.log"
   log_file: "logs/ptq.log"
+
+  tasks:
+    reach:
+      fp32_path: "artifacts/distil_act_model_32.onnx"
+      fp32_preprocessed_path: "artifacts/distil_act_model_32_preprocessed.onnx"
+      fp16_path: "artifacts/distil_act_model_16.onnx"
+      output_path: "artifacts/distil_act_model_ptq.onnx"
+      dyn_path: "artifacts/distil_act_model_dyn.onnx"
+      calib_npz_path: "artifacts/distil_act_model_calibration_data.npz"
+      int8_qdq_path: "artifacts/distil_act_model_int8_qdq.onnx"
+      engine_fp32_path: "artifacts/distil_act_model_32.engine"
+      engine_fp16_path: "artifacts/distil_act_model_16.engine"
+      engine_int8_path: "artifacts/distil_act_model_int8.engine"
+
+    pick:
+      fp32_path: "artifacts/pick_distil_model_32.onnx"
+      fp32_preprocessed_path: "artifacts/pick_distil_model_32_preprocessed.onnx"
+      fp16_path: "artifacts/pick_distil_model_16.onnx"
+      output_path: "artifacts/pick_distil_model_ptq.onnx"
+      dyn_path: "artifacts/pick_distil_model_dyn.onnx"
+      calib_npz_path: "artifacts/pick_distil_model_calibration_data.npz"
+      int8_qdq_path: "artifacts/pick_distil_model_int8_qdq.onnx"
+      engine_fp32_path: "artifacts/pick_distil_model_32.engine"
+      engine_fp16_path: "artifacts/pick_distil_model_16.engine"
+      engine_int8_path: "artifacts/pick_distil_model_int8.engine"

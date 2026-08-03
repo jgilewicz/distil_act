@@ -1,3 +1,5 @@
+import argparse
+
 import onnx
 import torch
 from dotenv import load_dotenv
@@ -15,10 +17,15 @@ device = torch.device("cuda")
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", choices=("reach", "pick"), required=True)
+    args = parser.parse_args()
+    task = args.task
+
     cfg = load_config()
-    ev = cfg["eval"]["tasks"]["reach"]["student"]
-    ptq = cfg["ptq"]
-    logger = Logger(ptq["export_log_file"])
+    ev = cfg["eval"]["tasks"][task]["student"]
+    ptq = cfg["ptq"]["tasks"][task]
+    logger = Logger(cfg["ptq"]["export_log_file"])
 
     logger.info(f"Using device: {device}")
 
@@ -29,12 +36,12 @@ def main():
 
     t = cfg["training"]
     d = cfg["distillation"]
-    reach_t = t["tasks"]["reach"]
+    task_t = t["tasks"][task]
     act = ACT(
-        action_dim=reach_t["action_dim"],
+        action_dim=task_t["action_dim"],
         embed_dim=d["embed_dim"],
         latent_dim=d["latent_dim"],
-        joint_dim=reach_t["joint_dim"],
+        joint_dim=task_t["joint_dim"],
         action_query_len=t["chunk_size"],
         nhead=d["nhead"],
         num_layers=d["num_layers"],
@@ -47,7 +54,7 @@ def main():
     act.eval()
     logger.info("Model loaded")
 
-    calib_dataset = EpisodeDataset(cfg, split="val")
+    calib_dataset = EpisodeDataset(cfg, task=task, split="val")
     example_inputs = (
         calib_dataset[0]["images"].unsqueeze(0).to(device),
         calib_dataset[0]["qpos"].unsqueeze(0).to(device),

@@ -372,57 +372,58 @@ def main():
         "student": student_metrics,
     }
 
-    if task == "reach":
-        quantized_variants = {
-            "student_ptq": cfg["ptq"]["output_path"],
-            "student_dyn": cfg["ptq"]["dyn_path"],
-            "student_fp16_onnx": cfg["ptq"]["fp16_path"],
-        }
-        for name, onnx_path in quantized_variants.items():
-            results[name] = measure_model(
-                name,
-                onnx_path,
-                student_kwargs,
-                t["chunk_size"],
-                task_t["joint_dim"],
-                task_t["action_dim"],
-                cfg,
-                task,
-                torch.device("cpu"),
-                logger,
-                quantized=True,
-                norm_checkpoint=student_ev["checkpoint"],
-            )
+    task_ptq = cfg["ptq"]["tasks"][task]
 
-        trt_variants = {
-            "student_trt_fp32": (
-                cfg["ptq"]["fp32_path"],
-                cfg["ptq"]["engine_fp32_path"],
-            ),
-            "student_trt_fp16": (
-                cfg["ptq"]["fp16_path"],
-                cfg["ptq"]["engine_fp16_path"],
-            ),
-        }
-        for name, (onnx_path, engine_path) in trt_variants.items():
-            results[name] = measure_model(
-                name,
-                onnx_path,
-                student_kwargs,
-                t["chunk_size"],
-                task_t["joint_dim"],
-                task_t["action_dim"],
-                cfg,
-                task,
-                torch.device("cpu"),
-                logger,
-                norm_checkpoint=student_ev["checkpoint"],
-                engine_path=engine_path,
-            )
-    else:
-        logger.info(
-            f"Skipping quantized/TensorRT variants for task={task} — "
-            "the ONNX export/PTQ pipeline (config/quant.yaml) is reach-only."
+    quantized_variants = {
+        "student_ptq": task_ptq["output_path"],
+        "student_dyn": task_ptq["dyn_path"],
+        "student_fp16_onnx": task_ptq["fp16_path"],
+        "student_int8_qdq": task_ptq["int8_qdq_path"],
+    }
+    for name, onnx_path in quantized_variants.items():
+        results[name] = measure_model(
+            name,
+            onnx_path,
+            student_kwargs,
+            t["chunk_size"],
+            task_t["joint_dim"],
+            task_t["action_dim"],
+            cfg,
+            task,
+            torch.device("cpu"),
+            logger,
+            quantized=True,
+            norm_checkpoint=student_ev["checkpoint"],
+        )
+
+    trt_variants = {
+        "student_trt_fp32": (
+            task_ptq["fp32_path"],
+            task_ptq["engine_fp32_path"],
+        ),
+        "student_trt_fp16": (
+            task_ptq["fp16_path"],
+            task_ptq["engine_fp16_path"],
+        ),
+        "student_trt_int8": (
+            task_ptq["int8_qdq_path"],
+            task_ptq["engine_int8_path"],
+        ),
+    }
+    for name, (onnx_path, engine_path) in trt_variants.items():
+        results[name] = measure_model(
+            name,
+            onnx_path,
+            student_kwargs,
+            t["chunk_size"],
+            task_t["joint_dim"],
+            task_t["action_dim"],
+            cfg,
+            task,
+            torch.device("cpu"),
+            logger,
+            norm_checkpoint=student_ev["checkpoint"],
+            engine_path=engine_path,
         )
 
     os.makedirs(os.path.dirname(m["output_path"]), exist_ok=True)
