@@ -5,7 +5,7 @@ MuJoCo reads `MUJOCO_GL` **at import time** — it must be set in the shell befo
 `just collect-headless` already sets `MUJOCO_GL=egl`. If you run the script directly:
 
 ```bash
-MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collect_data.py
+MUJOCO_GL=egl SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py --task reach
 ```
 
 ## Choosing a backend
@@ -26,7 +26,7 @@ If EGL still fails (`gladLoadGL error`), fall back to OSMesa:
 
 ```bash
 apt-get install -y libosmesa6
-MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collect_data.py
+MUJOCO_GL=osmesa SHOW_VIEWER=false uv run python3 scripts/collection/collect_data.py --task reach
 ```
 
 The Docker image ships with `libegl1` + `libgl1` and sets `MUJOCO_GL=disabled` for tests (physics only). Switch it to `egl` for any container that needs to render frames.
