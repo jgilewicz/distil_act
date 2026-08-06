@@ -1,17 +1,6 @@
-# Physics, IK expert, and rendering — shared by data collection and both eval scripts.
-
-env:
-  scene_xml_path: "models/reach_scene.xml"
-  target_x_range: [0.0, 0.13]
-  target_y_range: [0.08, 0.20]
-  target_z_range: [0.10, 0.20]
-  reach_threshold: 0.025
-
-expert:
-  dt: 0.002
-  solver: "daqp"
-  max_iters: 10
-  ik_pos_threshold: 0.005
+# Rendering config — shared by both collection tasks and both eval scripts.
+# Reach's env/expert live under collect.tasks.reach in collect.yaml (the
+# single source both collection and eval read from).
 
 renderer:
   height: 480

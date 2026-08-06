@@ -1,5 +1,11 @@
 import numpy as np
+import pytest
+import torch
 from expert.reach_expert import ReachExpert
+
+pytestmark = pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="ReachExpert's curobo backend requires a GPU"
+)
 
 
 def test_compute_action_shape(env):

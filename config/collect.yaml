@@ -1,0 +1,67 @@
+# Per-task env/expert/collection config for scripts/collection/collect_data.py.
+# Same key names (env/expert/collection) under each task so collection is a
+# single script switched by `--task {reach,pick}`.
+
+collect:
+  tasks:
+    reach:
+      env:
+        scene_xml_path: "models/reach_scene.xml"
+        target_x_range: [0.12, 0.28]
+        target_y_range: [-0.15, 0.15]
+        target_z_range: [0.10, 0.20]
+        reach_threshold: 0.025
+
+      expert:
+        urdf_path: "models/piper.urdf"
+        asset_path: "models"
+        config_path: "models/config.yaml"
+        sphere_density: 1.0
+        coverage_weight: 1000.0
+        protrusion_weight: 10.0
+        compute_metrics: false
+        prune_collisions: true
+        num_collision_samples: 100
+        num_seeds: 32
+        device: "cuda"
+
+      collection:
+        n_episodes: 200
+        n_steps: 1000
+        dataset_dir: "data/reach"
+        log_file: "logs/reach_data_gathering.log"
+        render_cameras:
+          - "overhead_cam"
+          - "ego_cam"
+
+        hub:
+          repo_id: "jgilewicz/act_reach_env"
+          auto_pull: true
+          auto_push: false
+
+    pick:
+      env:
+        scene_xml_path: "models/pick_scene.xml"
+        box_x_range: [-0.10, -0.06]
+        box_y_range: [0.13, 0.15]
+        box_height: 0.025
+        lift_height: 0.05
+        gripper_kp: 200.0
+        gripper_kv: 11.0
+
+      expert:
+        close_steps: 50
+
+      collection:
+        n_episodes: 200
+        n_steps: 2500
+        dataset_dir: "data/pick"
+        log_file: "logs/pick_data_gathering.log"
+        render_cameras:
+          - "overhead_cam"
+          - "ego_cam"
+
+        hub:
+          repo_id: "jgilewicz/pick_data"
+          auto_pull: false
+          auto_push: false

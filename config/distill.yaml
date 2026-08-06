@@ -1,4 +1,8 @@
-# Student distillation from the teacher ACT (scripts/train_distil.py).
+# Student distillation from the teacher ACT (scripts/training/train_distil.py --task <task>).
+# action_dim/joint_dim come from training.tasks.<task> — the student is the
+# same shape contract as its teacher. teacher/checkpoint_dir/checkpoint_prefix/
+# hub/log_file are task-specific; everything else (student architecture,
+# distillation loss weights) is shared.
 
 distillation:
   embed_dim: 128
@@ -10,20 +14,39 @@ distillation:
   alpha: 0.5
   gamma: 0.2
 
-  log_file: "logs/distillation.log"
-  checkpoint_dir: "artifacts"
-
-  teacher:
-    checkpoint: "artifacts/act_model_final.pt"
-    repo_id: "jgilewicz/distil_act_teacher"
-    filename: "act_model_final.pt"
-    auto_pull: true  
-
   wandb:
     project: "distil_act"
     entity: "jg_projects"
 
-  hub:
-    repo_id: "jgilewicz/distil_act_student"
-    filename: "distil_act_model_final.pt"
-    auto_push: false
+  tasks:
+    reach:
+      log_file: "logs/distillation_reach.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "distil_act_model"
+
+      teacher:
+        checkpoint: "artifacts/act_model_final.pt"
+        repo_id: "jgilewicz/distil_act_teacher"
+        filename: "act_model_final.pt"
+        auto_pull: true
+
+      hub:
+        repo_id: "jgilewicz/distil_act_student"
+        filename: "distil_act_model_final.pt"
+        auto_push: false
+
+    pick:
+      log_file: "logs/distillation_pick.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "pick_distil_model"
+
+      teacher:
+        checkpoint: "artifacts/pick_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_teacher"
+        filename: "pick_model_final.pt"
+        auto_pull: true
+
+      hub:
+        repo_id: "jgilewicz/distil_act_pick_student"
+        filename: "pick_distil_model_final.pt"
+        auto_push: false

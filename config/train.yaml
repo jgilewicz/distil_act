@@ -1,10 +1,8 @@
-# Teacher ACT training (scripts/train_act.py).
+# Teacher ACT training (scripts/training/train_act.py --task <task>).
 
 training:
-  action_dim: 6
   embed_dim: 256
   latent_dim: 128
-  joint_dim: 6
   nhead: 8
   num_layers: 4
   num_cameras: 2
@@ -19,14 +17,33 @@ training:
   save_interval: 10000
   lr: 0.00015
 
-  log_file: "logs/training.log"
-  checkpoint_dir: "artifacts"
-
   wandb:
     project: "distil_act"
     entity: "jg_projects"
 
-  hub:
-    repo_id: "jgilewicz/distil_act_teacher"
-    filename: "act_model_final.pt"
-    auto_push: false  
+  tasks:
+    reach:
+      action_dim: 7
+      joint_dim: 8
+      action_qpos_offset: 0
+      log_file: "logs/training_reach.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "act_model"
+
+      hub:
+        repo_id: "jgilewicz/distil_act_teacher"
+        filename: "act_model_final.pt"
+        auto_push: false
+
+    pick:
+      action_dim: 7
+      joint_dim: 15
+      action_qpos_offset: 7
+      log_file: "logs/training_pick.log"
+      checkpoint_dir: "artifacts"
+      checkpoint_prefix: "pick_model"
+
+      hub:
+        repo_id: "jgilewicz/distil_act_pick_teacher"
+        filename: "pick_model_final.pt"
+        auto_push: false

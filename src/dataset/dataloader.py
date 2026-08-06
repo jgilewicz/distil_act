@@ -10,11 +10,14 @@ from utils.hub import ensure_dataset
 
 
 class EpisodeDataset(Dataset):
-    def __init__(self, cfg: dict, split: str = "train") -> None:
-        col = cfg["collection"]
+    def __init__(self, cfg: dict, task: str = "reach", split: str = "train") -> None:
+        col = cfg["collect"]["tasks"][task]["collection"]
         dataset_dir = col["dataset_dir"]
+        task_t = cfg["training"]["tasks"][task]
         chunk_size = cfg["training"]["chunk_size"]
         val_ratio = cfg["training"]["val_ratio"]
+        action_dim = task_t["action_dim"]
+        action_offset = task_t["action_qpos_offset"]
 
         if col["hub"]["auto_pull"]:
             ensure_dataset(dataset_dir, col["hub"]["repo_id"])
@@ -27,6 +30,8 @@ class EpisodeDataset(Dataset):
         episodes = episodes[:n_train] if split == "train" else episodes[n_train:]
 
         self._chunk_size = chunk_size
+        self._action_offset = action_offset
+        self._action_dim = action_dim
         self._index = []
 
         all_joints = []
@@ -42,29 +47,38 @@ class EpisodeDataset(Dataset):
         all_joints = np.concatenate(all_joints, axis=0)
         self.mean = torch.from_numpy(np.mean(all_joints, axis=0)).float()
         self.std = torch.from_numpy(np.std(all_joints, axis=0)).float()
+        self.action_mean = self.mean[action_offset : action_offset + action_dim]
+        self.action_std = self.std[action_offset : action_offset + action_dim]
 
     def __len__(self) -> int:
         return len(self._index)
 
     def __getitem__(self, idx: int) -> dict:
         path, t = self._index[idx]
+        offset = self._action_offset
         with h5py.File(path, "r") as f:
             images = f["frames"][t]
             qpos = f["joints"][t]
-            actions = f["joints"][t : t + self._chunk_size]
+            actions = f["joints"][
+                t : t + self._chunk_size, offset : offset + self._action_dim
+            ]
 
         return {
             "images": torch.from_numpy(images).permute(0, 3, 1, 2).float() / 255.0,
-            "qpos": self._normalise(torch.from_numpy(qpos.copy())),
-            "actions": self._normalise(torch.from_numpy(actions.copy())),
+            "qpos": self._normalise(torch.from_numpy(qpos.copy()), self.mean, self.std),
+            "actions": self._normalise(
+                torch.from_numpy(actions.copy()), self.action_mean, self.action_std
+            ),
         }
 
-    def _normalise(self, qpos: torch.Tensor) -> torch.Tensor:
-        return (qpos - self.mean) / self.std
+    def _normalise(
+        self, x: torch.Tensor, mean: torch.Tensor, std: torch.Tensor
+    ) -> torch.Tensor:
+        return (x - mean) / std
 
 
-def make_dataloader(cfg: dict, split: str = "train") -> DataLoader:
-    ds = EpisodeDataset(cfg, split=split)
+def make_dataloader(cfg: dict, task: str = "reach", split: str = "train") -> DataLoader:
+    ds = EpisodeDataset(cfg, task=task, split=split)
     return DataLoader(
         ds,
         batch_size=cfg["training"]["batch_size"],

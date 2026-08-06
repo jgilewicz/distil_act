@@ -1,26 +1,55 @@
-# Policy evaluation (scripts/eval_act.py for the teacher, scripts/eval_distil.py for the student).
+# Policy evaluation (scripts/eval/eval_act.py --task <task> for the teacher,
+# scripts/eval/eval_distil.py --task <task> for the student,
+# scripts/eval/distillation_measure.py --task <task> for the benchmark).
+# Quantized/TensorRT variants in distillation_measure.py only run for
+# task=reach — the ONNX export/PTQ pipeline (config/quant.yaml) stays reach-only.
 
 eval:
-  teacher:
-    checkpoint: "artifacts/act_model_final.pt"
-    repo_id: "jgilewicz/distil_act_teacher"
-    filename: "act_model_final.pt"
-    auto_pull: true  
-    seed: 1
-    video_path: "artifacts/eval_teacher.mp4"
-    log_file: "logs/eval_teacher.log"
+  tasks:
+    reach:
+      teacher:
+        checkpoint: "artifacts/act_model_final.pt"
+        repo_id: "jgilewicz/distil_act_teacher"
+        filename: "act_model_final.pt"
+        auto_pull: true
+        seed: 1
+        video_path: "artifacts/eval_teacher_reach.mp4"
+        log_file: "logs/eval_teacher_reach.log"
 
-  student:
-    checkpoint: "artifacts/distil_act_model_final.pt"
-    repo_id: "jgilewicz/distil_act_student"
-    filename: "distil_act_model_final.pt"
-    auto_pull: true
-    seed: 1
-    video_path: "artifacts/eval_student.mp4"
-    log_file: "logs/eval_student.log"
+      student:
+        checkpoint: "artifacts/distil_act_model_final.pt"
+        repo_id: "jgilewicz/distil_act_student"
+        filename: "distil_act_model_final.pt"
+        auto_pull: true
+        seed: 0
+        video_path: "artifacts/eval_student_reach.mp4"
+        log_file: "logs/eval_student_reach.log"
 
-  measure:
-    n_episodes: 50
-    log_file: "logs/distillation_measure.log"
-    output_path: "artifacts/distillation_metrics.json"
+      measure:
+        n_episodes: 20
+        log_file: "logs/distillation_measure_reach.log"
+        output_path: "artifacts/distillation_metrics_reach.json"
 
+    pick:
+      teacher:
+        checkpoint: "artifacts/pick_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_teacher"
+        filename: "pick_model_final.pt"
+        auto_pull: true
+        seed: 1
+        video_path: "artifacts/eval_teacher_pick.mp4"
+        log_file: "logs/eval_teacher_pick.log"
+
+      student:
+        checkpoint: "artifacts/pick_distil_model_final.pt"
+        repo_id: "jgilewicz/distil_act_pick_student"
+        filename: "pick_distil_model_final.pt"
+        auto_pull: true
+        seed: 0
+        video_path: "artifacts/eval_student_pick.mp4"
+        log_file: "logs/eval_student_pick.log"
+
+      measure:
+        n_episodes: 20
+        log_file: "logs/distillation_measure_pick.log"
+        output_path: "artifacts/distillation_metrics_pick.json"

@@ -4,14 +4,14 @@ import mujoco
 
 def test_reset_obs_shape(env):
     obs = env.reset()
-    assert obs.shape == (18,)
+    assert obs.shape == (22,)
 
 
 def test_step_returns_correct_shapes(env):
     env.reset()
     action = np.zeros(env.model.nu)
     obs, terminated = env.step(action)
-    assert obs.shape == (18,)
+    assert obs.shape == (22,)
     assert isinstance(terminated, (bool, np.bool_))
 
 
